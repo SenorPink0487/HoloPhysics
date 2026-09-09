@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>未来物理实验室 · 交互实验</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <!-- Boot loader (GSAP intro + pure-CSS ambient motion during full prewarm) -->
+  <div id="loader" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-busy="true">
+    <div class="loader-aurora" aria-hidden="true"></div>
+    <div class="loader-grid" aria-hidden="true"></div>
+    <div class="loader-content">
+      <div class="loader-orb-wrap">
+        <div class="loader-ring" aria-hidden="true"></div>
+        <div class="loader-orb"></div>
+        <span class="loader-particle p1" aria-hidden="true"></span>
+        <span class="loader-particle p2" aria-hidden="true"></span>
+        <span class="loader-particle p3" aria-hidden="true"></span>
+        <span class="loader-particle p4" aria-hidden="true"></span>
+        <span class="loader-particle p5" aria-hidden="true"></span>
+        <span class="loader-particle p6" aria-hidden="true"></span>
+      </div>
+      <div class="loader-brand" aria-label="HoloPhysics">
+        <span class="char">H</span><span class="char">o</span><span class="char">l</span><span class="char">o</span><span class="char">P</span><span class="char">h</span><span class="char">y</span><span class="char">s</span><span class="char">i</span><span class="char">c</span><span class="char">s</span>
+      </div>
+      <p class="loader-sub">未来物理实验室</p>
+      <div class="loader-meter">
+        <div class="loader-bar">
+          <div class="loader-bar-fill"></div>
+          <div class="loader-bar-glow"></div>
+        </div>
+        <div class="loader-pct-wrap"><span class="loader-pct">0</span><span class="loader-pct-unit">%</span></div>
+      </div>
+      <p class="loader-status">初始化渲染核心…</p>
+    </div>
+  </div>
+
+  <div id="legacy-ui" hidden aria-hidden="true">
+  <div id="help-controls" aria-live="polite">
+    <button type="button" id="help-toggle" title="查看交互操作与控制逻辑指南 (？)">
+      <span class="help-toggle-icon" aria-hidden="true">
+        <span class="icon-pulse"></span>
+        <svg class="svg-icon help-ring-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.3"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <circle cx="12" cy="17" r="0.6" fill="currentColor"></circle>
+        </svg>
+      </span>
+      <span class="help-toggle-copy">
+        <strong>使用教程</strong>
+        <small>量子交互指南</small>
+      </span>
+    </button>
+  </div>
+
+  <div id="hand-tracking-controls" aria-live="polite">
+    <button type="button" id="hand-tracking-toggle" aria-pressed="false" title="开启 AR 模式（H）">
+      <span class="hand-toggle-icon" aria-hidden="true">AR</span>
+      <span class="hand-toggle-copy">
+        <strong>AR 模式</strong>
+        <small id="hand-tracking-status">AR 模式已关闭 · H</small>
+      </span>
+      <span class="hand-toggle-led-wrap" aria-hidden="true">
+        <span class="hand-toggle-led"></span>
+        <span class="hand-toggle-led-ping"></span>
+      </span>
+    </button>
+    <video id="hand-tracking-video" playsinline muted aria-hidden="true"></video>
+  </div>
+
+  <div id="ar-tutorial" role="status" aria-live="polite">
+    <strong>AR 双手交互</strong>
+    <span>双手捏合外扩前进 / 内收后退 · 单手空处捏合转向 · 对准仪器捏合操作（双手捏合优先）</span>
+  </div>
+
+  <div id="vr-edge-highlight" aria-hidden="true">
+    <i class="vr-edge vr-edge-top"></i>
+    <i class="vr-edge vr-edge-right"></i>
+    <i class="vr-edge vr-edge-bottom"></i>
+    <i class="vr-edge vr-edge-left"></i>
+    <span class="vr-corner vr-corner-tl"></span>
+    <span class="vr-corner vr-corner-tr"></span>
+    <span class="vr-corner vr-corner-br"></span>
+    <span class="vr-corner vr-corner-bl"></span>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="exp-panel">
+    <div class="exp-header">
+      <h2 id="exp-station-title">实验台</h2>
+      <button type="button" class="exp-close" id="exp-close" title="关闭">×</button>
+    </div>
+    <div id="exp-list"></div>
+    <div id="exp-active">
+      <div class="exp-name" id="exp-name"></div>
+      <div class="exp-theory" id="exp-theory"></div>
+      <ul id="exp-steps"></ul>
+      <div id="exp-hint"></div>
+      <div id="exp-data"></div>
+      <div class="exp-actions">
+        <button type="button" class="btn-ghost" id="exp-back">返回列表</button>
+        <button type="button" class="btn-record" id="exp-record" title="记录当前峰值 (F)">记录数据 (F)</button>
+        <button type="button" class="btn-primary" id="exp-action">执行操作 (E)</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="physics-fps-root" class="physics-fps-root"></div>
+  <div id="ui-root"></div>
+
+  <div id="help-modal-wrap" class="help-modal-wrap" aria-hidden="true">
+    <div class="help-modal-backdrop" id="help-modal-backdrop"></div>
+    <div class="help-modal-box" role="dialog" aria-labelledby="help-modal-title" aria-modal="true">
+      <div class="help-modal-header">
+        <div class="help-header-left">
+          <h2 id="help-modal-title">实验室操作指南</h2>
+        </div>
+        <button type="button" class="help-close" id="help-close" title="关闭 (Esc)">
+          <span class="close-kbd">ESC</span>
+          <i class="close-x">×</i>
+        </button>
+      </div>
+
+      <div class="help-modal-body">
+        <div class="guide-column mech-col">
+          <div class="guide-col-header">
+            <div class="guide-col-icon">
+              <svg class="svg-icon col-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="6" width="20" height="12" rx="2.5"></rect>
+                <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"></path>
+              </svg>
+            </div>
+            <div class="guide-col-title">
+              <h3>常规键鼠操作</h3>
+            </div>
+          </div>
+          <div class="guide-rows">
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>三维空间漫游与走位</h4>
+                <p>在物理实验室中前后左右平滑移动，调整最佳观测视角</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd>Space</kbd> / <kbd>Shift</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>Z 轴垂直升降与下潜</h4>
+                <p>控制人物垂直上升浮动或下潜高度，便于多角度观察大型物理仪器</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd class="kbd-wide">点击屏幕</kbd> + <kbd>转动</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>锁定视角与精密瞄准</h4>
+                <p>点击画面进入第一人称沉浸视角，移动鼠标自由查看并使中央准星锁定仪器</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd class="kbd-glow">E</kbd> / <kbd>左键触发</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>核心仪器交互与回路开关</h4>
+                <p>准星锁定可交互仪器时，触发电路闭合、光学发生器采样或启动动力引擎</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd class="kbd-wide">按住左键 + 左右拖曳</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>连续物理参数无级精密调节</h4>
+                <p>实时无级滑动调节单摆摆长、弹簧质量、激光波长与磁场轨道定位</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd class="kbd-emerald">F</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>极速瞬态波峰与数据采样</h4>
+                <p>在实时物理振荡与测量过程中，一键捕捉并记录当前精准峰值与实验数据点</p>
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-keys mech">
+                <kbd>H</kbd> / <kbd>Esc</kbd>
+              </div>
+              <div class="guide-desc">
+                <h4>手势追踪开关与全息退出</h4>
+                <p>一键开启/关闭右上角 AR 手势视觉核心；按 <kbd>Esc</kbd> 退出全息数据屏或当前窗口</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="guide-column ar-col">
+          <div class="guide-col-header ar">
+            <div class="guide-col-icon">
+              <svg class="svg-icon col-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+                <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+                <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+                <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.8-5.9-2.3L3.3 15a2 2 0 0 1 .3-2.8v0a2 2 0 0 1 2.8.3L8 14"></path>
+              </svg>
+            </div>
+            <div class="guide-col-title">
+              <h3>AR 手势隔空操作 (H)</h3>
+            </div>
+          </div>
+          <div class="guide-rows">
+            <div class="guide-row ar-row">
+              <div class="guide-keys ar">
+                <span class="ar-pill"><i class="ar-dot"></i>单手捏合 + 轻移手腕</span>
+              </div>
+              <div class="guide-desc">
+                <h4>隔空自由转向与全域回转</h4>
+                <p>手部准星处于无仪器空处时，做出拇指与食指捏合动作，轻移手腕即可隔空平滑旋转镜头</p>
+              </div>
+            </div>
+            <div class="guide-row ar-row">
+              <div class="guide-keys ar">
+                <span class="ar-pill"><i class="ar-dot"></i>双手同时捏合展开 / 收拢</span>
+              </div>
+              <div class="guide-desc">
+                <h4>双手隔空立体漫游 (Locomotion)</h4>
+                <p>双手同时做出捏合姿势：向外张开向前推进漫游，向内收拢向后倒退，纵横全景空间</p>
+              </div>
+            </div>
+            <div class="guide-row ar-row">
+              <div class="guide-keys ar">
+                <span class="ar-pill active"><i class="ar-dot"></i>瞄准仪器 + 单手捏合拖曳</span>
+              </div>
+              <div class="guide-desc">
+                <h4>隔空触发与参数无接触推拉</h4>
+                <p>手部准星锁定仪器按钮时捏合即触发；瞄准连续调节滑轨捏住并左右拖放即可无级改变物理参数</p>
+              </div>
+            </div>
+            <div class="guide-row ar-row">
+              <div class="guide-keys ar">
+                <span class="ar-pill info"><i class="ar-dot"></i>智能仲裁与低光自动降级</span>
+              </div>
+              <div class="guide-desc">
+                <h4>多模态神经网络优先权架构</h4>
+                <p>双手漫游享有最高响应优先级；若环境光线过暗导致视觉丢帧，系统会无感自动切入稳态冗余模式</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="help-modal-footer">
+        <div class="help-footer-left">
+          <p class="help-tip">
+            <span class="tip-icon-wrap">
+              <svg class="svg-icon tip-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path>
+                <path d="M9 18h6"></path>
+                <path d="M10 22h4"></path>
+              </svg>
+            </span>
+            <span><strong>实验锦囊</strong>：点击实验台任意全息终端，即可查看该实验的物理理论推导公式与分步操作目标。</span>
+          </p>
+        </div>
+        <button type="button" class="help-btn-confirm" id="help-confirm">
+          <span class="btn-text">掌握了，进入物理世界 (E)</span>
+          <i class="btn-arrow">→</i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen hologram UI (maximize) -->
+  <div id="holo-fs" class="holo-fs" aria-hidden="true">
+    <div class="holo-fs-frame">
+      <canvas id="holo-fs-canvas"></canvas>
+    </div>
+    <p class="holo-fs-tip">全屏全息终端 · 鼠标点击操作 · Esc 或点还原退出全屏</p>
+  </div>
+
+  <canvas id="c"></canvas>
+  <div id="mobile-controls" class="mobile-controls" aria-label="iPad 实验室控制">
+    <div id="mobile-joystick" class="mobile-joystick" role="application" aria-label="移动摇杆">
+      <span class="mobile-joystick-ring" aria-hidden="true"></span>
+      <span class="mobile-joystick-label" aria-hidden="true">移动</span>
+      <span id="mobile-joystick-knob" class="mobile-joystick-knob" aria-hidden="true"></span>
+    </div>
+    <div class="mobile-lift-controls" aria-label="升降控制">
+      <button id="mobile-lift-up" class="mobile-lift-button" type="button" aria-label="上升">▲<span>上升</span></button>
+      <button id="mobile-lift-down" class="mobile-lift-button" type="button" aria-label="下降">▼<span>下降</span></button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

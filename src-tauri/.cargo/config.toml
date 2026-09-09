@@ -1,0 +1,7 @@
+# Avoid CRYPT_E_REVOCATION_OFFLINE failures on some Windows networks
+[http]
+check-revoke = false
+
+# Prefer MSVC when available (recommended for Tauri on Windows).
+# This machine currently uses GNU/MinGW; lib crate-type omits cdylib to avoid
+# "export ordinal too large" linker errors under MinGW.

@@ -1,0 +1,38 @@
+{
+  "name": "quantum-physics-lab",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "未来物理实验室 · Tauri 2 桌面应用（Vite 前端）",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite",
+    "dev:tauri": "tauri dev",
+    "test": "node --test",
+    "test:physics": "node --test",
+    "build": "vite build",
+    "build:tauri": "tauri build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "measure:open": "node scripts/measure_experiment_open.mjs",
+    "measure:open:all": "node scripts/measure_experiment_open.mjs all",
+    "check:perf": "node scripts/check_perf_budget.mjs",
+    "measure:perf": "node scripts/measure_perf.mjs",
+    "assets:portraits": "node scripts/convert_portraits.mjs"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "cannon-es": "^0.20.0",
+    "three": "^0.184.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@webxr-input-profiles/assets": "^1.0.20",
+    "playwright": "^1.62.0",
+    "sharp": "^0.35.3",
+    "vite": "^6"
+  }
+}

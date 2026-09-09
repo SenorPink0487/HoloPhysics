@@ -1,0 +1,26 @@
+# Dependencies / build
+node_modules/
+dist/
+src-tauri/target/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env / local
+.env
+.env.*
+!.env.example
+
+# Tauri / tooling
+*.local
+.DS_Store
+
+# Test output / CLI artifacts
+.playwright-cli/
+output/

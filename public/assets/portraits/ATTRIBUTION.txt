@@ -1,0 +1,13 @@
+Portrait images sourced from Wikimedia Commons (public domain / free licenses).
+Downloaded for offline educational use in this local 3D lab demo.
+
+- einstein.jpg  — Albert Einstein Head (public domain)
+- newton.jpg    — Godfrey Kneller, Isaac Newton 1689 (public domain)
+- curie.jpg     — Marie Curie c. 1920s (public domain)
+- galileo.jpg   — Justus Sustermans, Galileo 1636 (public domain)
+- maxwell.jpg   — James Clerk Maxwell big (public domain)
+- faraday.jpg   — M Faraday, Thomas Phillips 1842 (public domain)
+- tesla.jpg     — Nikola Tesla by Sarony (public domain)
+- planck.jpg    — Max Planck portrait (public domain)
+
+https://commons.wikimedia.org/
