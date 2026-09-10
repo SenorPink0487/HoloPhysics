@@ -2,6 +2,5 @@
 [http]
 check-revoke = false
 
-# Prefer MSVC when available (recommended for Tauri on Windows).
-# This machine currently uses GNU/MinGW; lib crate-type omits cdylib to avoid
-# "export ordinal too large" linker errors under MinGW.
+[build]
+target = "x86_64-pc-windows-msvc"

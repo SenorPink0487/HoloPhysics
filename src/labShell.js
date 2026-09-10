@@ -1398,52 +1398,18 @@ function createStationProxy(stationId) {
   return { root, equipment, refs: { hallBench }, animators: [], proxy: true };
 }
 
-// Keep the catalog import-free, but build the station shells during boot. The
-// shells contain room-facing benches and terminals; experiment handlers and
-// selected experiment modes remain intent-gated.
-// Boot mounts real station shells. Yield between stations so the loader and
-// browser chrome stay interactive while the scene becomes visible before any
-// experiment card is selected.
-const STATION_BOOT = Object.freeze({
-  mechanics: { ratio: 0.18, status: '装配力学实验台…' },
-  optics: { ratio: 0.22, status: '装配光学实验台…' },
-  electro: { ratio: 0.26, status: '装配电磁学实验台…' },
-  thermo: { ratio: 0.30, status: '装配热力学实验台…' },
-});
+// Keep the first paint independent from station construction. In particular,
+// the electro station owns several dense field-line and apparatus graphs; its
+// factory must never run behind the boot loader. Menus and experiment intent
+// call ensureStationLoaded() later, after the room is interactive.
 const stationScenes = {};
-// Chem mode boots only the center-island chemistry station — never pulls
-// mechanics/optics/electro/thermo modules.
 for (const stationId of BOOT_STATION_IDS) {
-  const boot = STATION_BOOT[stationId] || { ratio: 0.24, status: `装配${stationId}…` };
-  labLoader.setProgress(boot.ratio, boot.status);
-  await yieldToBrowser(12);
-  registeringStationId = stationId;
-  const sceneModule = await loadStationModule(stationId);
-  const createRealStation = sceneModule.createStationEquipment || sceneModule.default;
-  if (typeof createRealStation !== 'function') {
-    registeringStationId = null;
-    throw new Error(`Invalid station module: ${stationId}`);
-  }
-  const station = await runHeavyChunk(() => createRealStation(stationContext), {
-    minIdleMs: 24,
-    maxRestMs: 64,
-  });
-  if (stationId === 'electro' && typeof station.equipment?.prewarmGpu === 'function') {
-    labLoader.setProgress(0.20, '预热电磁学实验材质…');
-    await yieldToBrowser(8);
-    await station.equipment.prewarmGpu(renderer, camera);
-  }
-  registeringStationId = null;
+  labLoader.setProgress(0.16 + (Object.keys(stationScenes).length * 0.03), `准备${stationId}实验台…`);
+  const station = createStationProxy(stationId);
   stationScenes[stationId] = station;
-  station.proxy = false;
   scene.add(station.root);
-  // Station-owned animators (also accept list return for backwards compat).
-  (station.animators || []).forEach((fn) => {
-    stationContext.registerAnimator(fn, { stationId });
-  });
-  // Extra idle after geometry so CSS loader motion fully resumes.
-  await yieldToBrowser(16);
 }
+labLoader.setProgress(0.32, '实验室空间准备完成…');
 
 // Active Station Runtime: at most one station contributes render/anim/raycast.
 const stationPresence = createStationPresence({ stationScenes });

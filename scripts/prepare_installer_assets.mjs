@@ -1,13 +1,19 @@
-﻿import fs from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
 const SOURCE_IMAGE = 'E:/桌面/图片素材/背景1.png';
+const FALLBACK_SOURCE = 'src-tauri/nsis/background.png';
 const OUT_DIR = 'src-tauri/nsis';
 
 export async function prepareAssets(width = 768, height = 512) {
+  let sourceToUse = SOURCE_IMAGE;
   if (!fs.existsSync(SOURCE_IMAGE)) {
-    throw new Error(`Source image not found: ${SOURCE_IMAGE}`);
+    if (fs.existsSync(FALLBACK_SOURCE)) {
+      sourceToUse = FALLBACK_SOURCE;
+    } else {
+      throw new Error(`Source image not found: ${SOURCE_IMAGE} and fallback ${FALLBACK_SOURCE}`);
+    }
   }
 
   if (!fs.existsSync(OUT_DIR)) {
@@ -17,9 +23,11 @@ export async function prepareAssets(width = 768, height = 512) {
   const outBmp = path.join(OUT_DIR, 'background.bmp');
   const outPng = path.join(OUT_DIR, 'background.png');
 
-  fs.copyFileSync(SOURCE_IMAGE, outPng);
+  if (path.resolve(sourceToUse) !== path.resolve(outPng)) {
+    fs.copyFileSync(sourceToUse, outPng);
+  }
 
-  const { data } = await sharp(SOURCE_IMAGE)
+  const { data } = await sharp(sourceToUse)
     .resize(width, height)
     .removeAlpha()
     .raw()

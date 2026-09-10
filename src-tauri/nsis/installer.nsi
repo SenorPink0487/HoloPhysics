@@ -44,6 +44,8 @@ ${StrLoc}
 !define UNINSTALLERHEADERIMAGE "{{uninstaller_header_image}}"
 !define MAINBINARYNAME "{{main_binary_name}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
+!define MAINBINARYDIR "${MAINBINARYSRCPATH}"
+!searchreplace MAINBINARYDIR "${MAINBINARYDIR}" "${MAINBINARYNAME}.exe" ""
 !define BUNDLEID "{{bundle_id}}"
 !define COPYRIGHT "{{copyright}}"
 !define OUTFILE "{{out_file}}"
@@ -72,6 +74,7 @@ Var OldMainBinaryName
 Var InnerDlgHWnd
 Var PercentLabelHWnd
 Var ProgressBarHWnd
+Var CustomProgressBarHWnd
 Var LastPercent
 Var TimerId
 Var BgBitmapHandle
@@ -140,23 +143,52 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Function InstFilesShow
   FindWindow $InnerDlgHWnd "#32770" "" $HWNDPARENT
 
-  ; Hide standard buttons & chrome on $HWNDPARENT
-  GetDlgItem $1 $HWNDPARENT 1
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 2
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 3
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1028
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1034
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1037
-  ShowWindow $1 0
-  GetDlgItem $1 $HWNDPARENT 1038
-  ShowWindow $1 0
+  ; 1. Remove title bar and window frame to make it completely borderless (no icon, title, or - [] X buttons)
+  System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -16) i .r2'
+  IntOp $2 $2 & 0xFF30FFFF
+  System::Call 'user32::SetWindowLong(p $HWNDPARENT, i -16, i r2)'
 
-  ; Hide inner controls on $InnerDlgHWnd
+  ; Clear EXSTYLE window borders
+  System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -20) i .r3'
+  IntOp $3 $3 & 0xFFFDDCFE
+  System::Call 'user32::SetWindowLong(p $HWNDPARENT, i -20, i r3)'
+
+  ; Center on screen with exact 768x512 size
+  System::Call 'user32::GetSystemMetrics(i 0) i .r4'
+  System::Call 'user32::GetSystemMetrics(i 1) i .r5'
+  IntOp $4 $4 - 768
+  IntOp $4 $4 / 2
+  IntOp $5 $5 - 512
+  IntOp $5 $5 / 2
+
+  ; Set $HWNDPARENT size and position with SWP_FRAMECHANGED (0x0020) | SWP_NOZORDER (0x0004) = 0x0024
+  System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r4, i r5, i 768, i 512, i 0x0024)'
+
+  ; Windows 11 rounded corners (DWMWCP_ROUND = 2)
+  System::Call '*(i 2) p .r1'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, p r1, i 4)'
+  System::Free $1
+
+  ; Resize $InnerDlgHWnd to cover the entire window (0, 0, 768, 512)
+  System::Call 'user32::SetWindowPos(p $InnerDlgHWnd, p 0, i 0, i 0, i 768, i 512, i 0x0014)'
+
+  ; Hide and banish all controls on $HWNDPARENT
+  StrCpy $0 0
+  loop_controls:
+    IntOp $0 $0 + 1
+    ${If} $0 > 1300
+      Goto done_controls
+    ${EndIf}
+    GetDlgItem $1 $HWNDPARENT $0
+    ${If} $1 != 0
+      ShowWindow $1 0
+      EnableWindow $1 0
+      System::Call 'user32::SetWindowPos(p r1, p 0, i -2000, i -2000, i 0, i 0, i 0x0014)'
+    ${EndIf}
+    Goto loop_controls
+  done_controls:
+
+  ; Hide standard inner controls on $InnerDlgHWnd
   GetDlgItem $1 $InnerDlgHWnd 1006
   ShowWindow $1 0
   GetDlgItem $1 $InnerDlgHWnd 1016
@@ -164,59 +196,69 @@ Function InstFilesShow
   GetDlgItem $1 $InnerDlgHWnd 1027
   ShowWindow $1 0
 
-  ; Get progress bar handle and hide it visually so we can read its value
+  ; Progress bar handle (hidden visually so we can query its progress)
   GetDlgItem $ProgressBarHWnd $InnerDlgHWnd 1004
   ShowWindow $ProgressBarHWnd 0
 
-  ; Load and set background bitmap
+  ; Load and set the complete user-supplied background bitmap (768x512)
   InitPluginsDir
-  File "/oname=$PLUGINSDIR\background.bmp" "D:\wuli\src-tauri\nsis\background.bmp"
+  File "/oname=$PLUGINSDIR\background.bmp" "${MAINBINARYDIR}\..\..\..\nsis\background.bmp"
   System::Call 'user32::LoadImage(p 0, w "$PLUGINSDIR\background.bmp", i 0, i 768, i 512, i 0x00000010) p .r5'
   StrCpy $BgBitmapHandle $5
 
-  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "", i 0x5000000E, i 0, i 0, i 768, i 512, p $InnerDlgHWnd, i 1199, i 0, i 0) p .r6'
+  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "", i 0x5400000E, i 0, i 0, i 768, i 512, p $InnerDlgHWnd, i 1199, i 0, i 0) p .r6'
   SendMessage $6 0x0172 0 $BgBitmapHandle
 
-  ; Create percentage label at center-bottom: X=264, Y=382, W=240, H=48
-  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "0%", i 0x50000001, i 264, i 382, i 240, i 48, p $InnerDlgHWnd, i 1200, i 0, i 0) p .r7'
+  ; Percentage & status label as child of $6
+  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "正在安装 0%", i 0x50000001, i 314, i 446, i 140, i 20, p r6, i 1200, i 0, i 0) p .r7'
   StrCpy $PercentLabelHWnd $7
 
-  ; Font: Segoe UI, 34px, Semibold (600)
-  System::Call 'gdi32::CreateFont(i 34, i 0, i 0, i 0, i 600, i 0, i 0, i 0, i 1, i 0, i 0, i 5, i 0, w "Segoe UI") p .r8'
+  ; Font: Segoe UI, 14px, Medium (500)
+  System::Call 'gdi32::CreateFont(i 14, i 0, i 0, i 0, i 500, i 0, i 0, i 0, i 1, i 0, i 0, i 5, i 0, w "Segoe UI") p .r8'
   StrCpy $FontHandle $8
-  SendMessage $PercentLabelHWnd ${WM_SETFONT} $FontHandle 1
+  SendMessage $PercentLabelHWnd 0x0030 $FontHandle 1
 
-  ; Colors: Text = #1E293B (deep slate charcoal), Background = #EEF0F1 (matching canvas)
-  SetCtlColors $PercentLabelHWnd "1E293B" "EEF0F1"
+  ; Custom sleek progress bar as child of $6: X=234, Y=470, W=300, H=4
+  System::Call 'user32::CreateWindowEx(i 0, w "msctls_progress32", w "", i 0x50000001, i 234, i 470, i 300, i 4, p r6, i 1201, i 0, i 0) p .r9'
+  StrCpy $CustomProgressBarHWnd $9
+  SendMessage $CustomProgressBarHWnd 0x0402 0 0
 
-  ; Keep the native dialog free of callback timers. The standard NSIS
-  ; progress control remains visible to the installer engine.
   StrCpy $LastPercent 0
+
+  ; Do not install a native callback timer here. NSIS can execute the
+  ; installation section without it, and callback dispatch through
+  ; System.dll is not reliable during installer startup.
+  StrCpy $TimerId 0
 FunctionEnd
 
 Function OnProgressTimerTick
   ${If} $ProgressBarHWnd != 0
-    SendMessage $ProgressBarHWnd 0x0408 0 0 $0
+    SendMessage $ProgressBarHWnd 0x0408 0 0 $0 ; PBM_GETPOS
     StrCpy $1 $0
     ${If} $1 > 100
       StrCpy $1 100
     ${EndIf}
     ${If} $1 != $LastPercent
       StrCpy $LastPercent $1
-      SendMessage $PercentLabelHWnd ${WM_SETTEXT} 0 "STR:$1%"
+      ${If} $CustomProgressBarHWnd != 0
+        SendMessage $CustomProgressBarHWnd 0x0402 $1 0 ; PBM_SETPOS
+      ${EndIf}
+      ${If} $PercentLabelHWnd != 0
+        SendMessage $PercentLabelHWnd 0x000C 0 "STR:正在安装 $1%" ; WM_SETTEXT
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 FunctionEnd
 
 Function UpdateInstallPercent
-  IntOp $0 $InstallFileCount * 100
-  IntOp $0 $0 / 70
-  ${If} $0 > 99
-    StrCpy $0 99
-  ${EndIf}
-  ${If} $0 > $LastPercent
-    StrCpy $LastPercent $0
-    SendMessage $PercentLabelHWnd ${WM_SETTEXT} 0 "STR:$0%"
+  ${If} $LastPercent < 90
+    StrCpy $LastPercent 90
+    ${If} $CustomProgressBarHWnd != 0
+      SendMessage $CustomProgressBarHWnd 0x0402 90 0
+    ${EndIf}
+    ${If} $PercentLabelHWnd != 0
+      SendMessage $PercentLabelHWnd 0x000C 0 "STR:正在安装 90%"
+    ${EndIf}
   ${EndIf}
 FunctionEnd
 
@@ -431,12 +473,6 @@ Section Install
   IntOp $InstallFileCount $InstallFileCount + 1
   Call UpdateInstallPercent
 
-  ; Tauri loads this DLL next to the executable before its WebView is created.
-  ; Keep it in the application root rather than the resource directory.
-  File /oname=WebView2Loader.dll "D:\wuli\src-tauri\target\release\WebView2Loader.dll"
-  IntOp $InstallFileCount $InstallFileCount + 1
-  Call UpdateInstallPercent
-
   ; Copy resources
   {{#each resources_dirs}}
     CreateDirectory "$INSTDIR\\{{this}}"
@@ -523,10 +559,13 @@ Function .onInstSuccess
   ${If} $TimerId != 0
     System::Call 'user32::KillTimer(p $HWNDPARENT, i $TimerId)'
   ${EndIf}
-  ${If} $PercentLabelHWnd != 0
-    SendMessage $PercentLabelHWnd ${WM_SETTEXT} 0 "STR:100%"
+  ${If} $CustomProgressBarHWnd != 0
+    SendMessage $CustomProgressBarHWnd 0x0402 100 0
   ${EndIf}
-  Sleep 800
+  ${If} $PercentLabelHWnd != 0
+    SendMessage $PercentLabelHWnd 0x000C 0 "STR:安装完成 100%"
+  ${EndIf}
+  Sleep 600
 
   ; Automatically launch app upon completion
   Call RunMainBinary
@@ -560,7 +599,6 @@ Section Uninstall
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
-  Delete "$INSTDIR\WebView2Loader.dll"
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"

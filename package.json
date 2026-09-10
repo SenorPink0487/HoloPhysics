@@ -1,7 +1,7 @@
 {
   "name": "quantum-physics-lab",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.3",
   "type": "module",
   "description": "未来物理实验室 · Tauri 2 桌面应用（Vite 前端）",
   "scripts": {
@@ -12,7 +12,7 @@
     "test:physics": "node --test",
     "build": "vite build",
     "prebuild:tauri": "node scripts/prepare_installer_assets.mjs",
-    "build:tauri": "tauri build -b nsis",
+    "build:tauri": "tauri build --target x86_64-pc-windows-msvc -b nsis",
     "preview": "vite preview",
     "tauri": "tauri",
     "measure:open": "node scripts/measure_experiment_open.mjs",

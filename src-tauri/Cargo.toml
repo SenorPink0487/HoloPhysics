@@ -1,6 +1,6 @@
 [package]
 name = "quantum-physics-lab"
-version = "0.1.0"
+version = "0.2.3"
 description = "未来物理实验室 — interactive 3D physics lab (Tauri 2)"
 authors = ["wuli"]
 edition = "2021"
