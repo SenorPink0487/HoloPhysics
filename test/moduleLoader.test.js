@@ -12,50 +12,37 @@ import { LAB_CATALOG, findExperiment } from '../src/runtime/catalog.js';
 
 test('catalog import does not populate module loader cache', () => {
   clearModulePromises();
-  assert.ok(LAB_CATALOG.mechanics);
-  assert.ok(findExperiment('pendulum'));
+  assert.ok(LAB_CATALOG.electro);
+  assert.ok(findExperiment('hall_effect'));
   assert.deepEqual(cachedModuleKeys(), []);
-  assert.equal(hasCachedModule('station:mechanics'), false);
-  assert.equal(hasCachedModule('experiment:mechanics'), false);
+  assert.equal(hasCachedModule('station:electro'), false);
+  assert.equal(hasCachedModule('experiment:electro'), false);
 });
 
 test('concurrent station loads share one Promise', async () => {
   clearModulePromises();
-  const a = loadStationModule('mechanics');
-  const b = loadStationModule('mechanics');
+  const a = loadStationModule('electro');
+  const b = loadStationModule('electro');
   assert.equal(a, b);
   const [modA, modB] = await Promise.all([a, b]);
   assert.equal(modA, modB);
   assert.equal(typeof (modA.createStationEquipment || modA.default), 'function');
-  assert.equal(hasCachedModule('station:mechanics'), true);
-  assert.equal(hasCachedModule('experiment:mechanics'), false);
+  assert.equal(hasCachedModule('station:electro'), true);
+  assert.equal(hasCachedModule('experiment:electro'), false);
 });
 
 test('experiment module load is separate from station scene load', async () => {
   clearModulePromises();
-  await loadStationModule('thermo');
-  assert.equal(hasCachedModule('station:thermo'), true);
-  assert.equal(hasCachedModule('experiment:thermo'), false);
+  await loadStationModule('electro');
+  assert.equal(hasCachedModule('station:electro'), true);
+  assert.equal(hasCachedModule('experiment:electro'), false);
 
-  const first = loadExperimentModule('ideal-gas', 'thermo');
-  const second = loadStationExperimentModule('thermo');
+  const first = loadExperimentModule('hall_effect', 'electro');
+  const second = loadStationExperimentModule('electro');
   assert.equal(first, second);
   const mod = await first;
   assert.ok(mod.station);
-  assert.equal(hasCachedModule('experiment:thermo'), true);
-});
-
-test('chemistry modules are also intent-loaded, not eagerly cached by catalog import', async () => {
-  clearModulePromises();
-  assert.equal(hasCachedModule('station:chem'), false);
-  assert.equal(hasCachedModule('experiment:chem'), false);
-
-  const station = await loadStationModule('chem');
-  assert.equal(typeof station.createStationEquipment, 'function');
-  assert.equal(hasCachedModule('experiment:chem'), false);
-
-  const experiment = await loadStationExperimentModule('chem');
-  assert.equal(typeof experiment.createHandlers, 'function');
+  assert.equal(hasCachedModule('experiment:electro'), true);
 });
 
 test('unknown station rejects without caching', async () => {

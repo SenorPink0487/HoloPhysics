@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import { createHandlers as createMechanicsHandlers, station as mechanicsStation } from '../src/experiments/mechanics.js';
-import { createHandlers as createOpticsHandlers } from '../src/experiments/optics.js';
 import { createHandlers as createElectroHandlers, analyzeHallWiring, exportHallDataReport } from '../src/experiments/electro.js';
 import { drawHoloScreen, pickHoloScreen } from '../src/holoScreen.js';
 import { formatExperimentData } from '../src/ui/experimentDataSummary.js';
@@ -24,78 +22,6 @@ function createContext({ expId, stepId, equipment }) {
     get stepId() { return activeStep; },
   };
 }
-
-test('mechanics station replaces the three legacy experiments with all six source experiments', () => {
-  assert.deepEqual(
-    mechanicsStation.experiments.map((experiment) => experiment.id),
-    ['free-fall', 'inclined-plane', 'pendulum', 'collision', 'projectile', 'viscosity'],
-  );
-});
-
-test('mechanics hologram parameter updates rebuild from the authoritative source state', () => {
-  let updated = null;
-  const ctx = createContext({
-    expId: 'free-fall',
-    stepId: 'configure',
-    equipment: {
-      mechanics: {
-        setParam: (id, key, value) => {
-          updated = { id, key, value };
-          return { params: { height: value }, readouts: [], paused: false, sourceTime: 0 };
-        },
-      },
-    },
-  });
-  const handlers = createMechanicsHandlers(ctx);
-  ctx.state.data = handlers.initData('free-fall');
-  assert.equal(handlers.onUiAction('mechanics-source-set', { key: 'height', value: 6.5 }), true);
-  assert.deepEqual(updated, { id: 'free-fall', key: 'height', value: 6.5 });
-  assert.equal(ctx.state.data.params.height, 6.5);
-});
-
-test('AR viscosity ball preserves grab, continuous drag, and release lifecycle', () => {
-  const calls = [];
-  const ctx = createContext({
-    expId: 'viscosity',
-    stepId: 'ball',
-    equipment: {
-      mechanics: {
-        beginBallDrag: (diameter) => { calls.push(['begin', diameter]); return true; },
-        updateBallDrag: (x, y) => { calls.push(['update', x, y]); return true; },
-        endBallDrag: (cancelled) => { calls.push(['end', cancelled]); return true; },
-        snapshot: () => ({ params: { diameterMm: 3 }, readouts: [], paused: false, sourceTime: 0 }),
-      },
-    },
-  });
-  const handlers = createMechanicsHandlers(ctx);
-  ctx.state.data = handlers.initData('viscosity');
-  const target = { userData: { role: 'mechanics_viscosity_ball', diameterMm: 3 } };
-  assert.equal(handlers.beginManipulation(target), true);
-  assert.equal(handlers.updateManipulation(target, { totalX: 120, totalY: -40, dragged: true }), true);
-  assert.equal(handlers.endManipulation(target, { dragged: true }), true);
-  assert.deepEqual(calls, [['begin', 3], ['update', 120, -40], ['end', false]]);
-});
-
-test('AR optics distinguishes a source tap from a wavelength drag', () => {
-  const ctx = createContext({
-    expId: 'multi_slit_diffraction',
-    stepId: 'setup',
-    equipment: { optics: { updateOptics: () => {} } },
-  });
-  const handlers = createOpticsHandlers(ctx);
-  ctx.state.data = handlers.initData('multi_slit_diffraction');
-  const source = { userData: { role: 'diff_source' } };
-  const initialWavelength = ctx.state.data.lambdaNm;
-  handlers.beginManipulation(source);
-  handlers.updateManipulation(source, { totalX: 100, dragged: true });
-  handlers.endManipulation(source, { dragged: true });
-  assert.ok(ctx.state.data.lambdaNm > initialWavelength);
-  assert.equal(ctx.state.data.lightOn, true);
-
-  handlers.beginManipulation(source);
-  handlers.endManipulation(source, { dragged: false });
-  assert.equal(ctx.state.data.lightOn, false);
-});
 
 test('AR tracking loss cancels an unfinished Hall terminal wire', () => {
   let cancelled = 0;

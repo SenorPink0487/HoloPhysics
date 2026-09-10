@@ -3,29 +3,6 @@ import { formatPhysicsNumber } from '../physicsFormula.js';
 /** Render the compact data strip shown below a station's hologram controls. */
 export function formatExperimentData(stationId, expId, data) {
   if (!data) return '—';
-  if (stationId === 'mechanics' && Array.isArray(data.readouts)) {
-    const lines = data.readouts.slice(0, 6).map((item) => `${item.label}: ${item.value}`);
-    lines.push(`<span class="ok">${data.paused ? '仿真已暂停' : '源仿真运行中'}</span>`);
-    return lines.join('\n');
-  }
-  if (expId === 'multi_slit_diffraction') {
-    const nRec = Array.isArray(data.records) ? data.records.length : 0;
-    const mode = data.chartOpen ? '核对标注中' : (data.farField ? 'Fraunhofer ✓' : '近场警告');
-    return `${data.N === 1 ? '单缝衍射' : `${data.N} 缝干涉`}　λ=${Number(data.lambdaNm || 0).toFixed(0)} nm\na=${Number(data.slitMm || 0).toFixed(3)} mm　d=${Number(data.pitchMm || 0).toFixed(3)} mm\nL=${Number(data.distM || 0).toFixed(2)} m　Δx≈${Number(data.fringeSpacingMm || 0).toFixed(3)} mm\n<span class="ok">对照 ${nRec} 组　${mode}</span>`;
-  }
-  if (data.mode === 'geometric' || ['reflection', 'refraction', 'dispersion', 'lens'].includes(expId)) {
-    const nRec = Array.isArray(data.records) ? data.records.length : 0;
-    const mod = data.moduleCode ? `${data.moduleCode} ` : '';
-    const mirror = data.opticsMode === 'mirror' || expId === 'reflection';
-    const t1 = data.theta1 != null ? Number(data.theta1).toFixed(1) : '—';
-    const t2 = data.theta2 == null ? (mirror ? '—' : 'TIR') : Number(data.theta2).toFixed(1);
-    if (mirror) {
-      const dth = data.deltaTheta != null ? Number(data.deltaTheta).toFixed(3) : '—';
-      return `${mod}反射　θᵢ=${t1}°　θᵣ=${t2}°\n|Δθ|=${dth}°　转角=${Number(data.rotate || 0).toFixed(0)}°\n<span class="ok">记录 ${nRec} 组　${data.verifyOk ? 'θᵢ≈θᵣ ✓' : '调节中'}</span>`;
-    }
-    const ratio = data.snellRatio != null ? Number(data.snellRatio).toFixed(3) : '—';
-    return `${mod}折射/色散　n=${Number(data.ior || 0).toFixed(3)}　θ₁=${t1}°　θ₂=${t2}°\nsinθ₁/sinθ₂=${ratio}　光束=${Number(data.rayCount || 1)}\n<span class="ok">记录 ${nRec} 组${data.dispersion ? '　色散开' : ''}</span>`;
-  }
   if (expId === 'hall_effect') {
     const isSolenoid = data.target !== 'helmholtz';
     const target = isSolenoid ? '长螺线管' : '亥姆霍兹线圈';

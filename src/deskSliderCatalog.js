@@ -116,82 +116,6 @@ function hallSpecs(d) {
   ];
 }
 
-function thermoSpecs(expId, d) {
-  if (expId === 'calorimetry') {
-    return [
-      range('tHot', '热水 T', 40, 95, { unit: '°C', digits: 0, setAction: 'thermo-set' }),
-      range('tCold', '冷水 T', 5, 40, { unit: '°C', digits: 0, setAction: 'thermo-set' }),
-      range('mHot', '热水 m', 50, 400, { unit: 'g', digits: 0, setAction: 'thermo-set' }),
-      range('mCold', '冷水 m', 50, 400, { unit: 'g', digits: 0, setAction: 'thermo-set' }),
-    ];
-  }
-  if (expId === 'convection') {
-    return [
-      range('tPlate', '热板 T', 300, 900, { unit: 'K', digits: 0, setAction: 'thermo-set' }),
-      range('tAir', '环境 T', 250, 350, { unit: 'K', digits: 0, setAction: 'thermo-set' }),
-      range('area', '面积 A', 0.05, 0.25, { unit: 'm²', setAction: 'thermo-set' }),
-    ];
-  }
-  if (expId === 'heat-conduction') {
-    return [
-      range('tHot', '热端 T', 200, 900, { unit: 'K', digits: 0, setAction: 'thermo-set' }),
-      range('tCold', '冷端 T', 200, 900, { unit: 'K', digits: 0, setAction: 'thermo-set' }),
-      range('conductivity', '导热 k', 0.15, 3.5, { setAction: 'thermo-set' }),
-    ];
-  }
-  if (expId === 'ideal-gas') {
-    return [
-      range('temperature', '温度 T', 150, 600, { unit: 'K', digits: 0, setAction: 'thermo-set' }),
-      range('volume', '体积 V', 0.4, 1.25, { unit: '×', setAction: 'thermo-set' }),
-    ];
-  }
-  if (expId === 'thermal-expansion') {
-    return [
-      range('temperature', '温度 T', 20, 400, { unit: '°C', digits: 0, setAction: 'thermo-set' }),
-      range('length0', 'L₀', 0.6, 1.4, { unit: 'm', setAction: 'thermo-set' }),
-    ];
-  }
-  return [];
-}
-
-function opticsGeoSpecs(expId, d) {
-  const reflection = expId === 'reflection';
-  const out = [
-    range('angle', '入射角 θ', 0, 75, { unit: '°', digits: 1, setAction: 'optics-geo-set' }),
-    range('rotate', '台面转角', -90, 90, { unit: '°', digits: 0, setAction: 'optics-geo-set' }),
-    range('rayCount', '光束数', 1, 12, { digits: 0, setAction: 'optics-geo-set' }),
-  ];
-  if (!reflection) {
-    out.push(range('ior', '折射率 n', 1.0, 2.6, { setAction: 'optics-geo-set' }));
-  }
-  if (d?.dispersion || expId === 'dispersion') {
-    out.push(range('dispersionStrength', '色散系数', 0, 1.5, { setAction: 'optics-geo-set' }));
-  }
-  out.push(range('height', '光束高度', -0.6, 0.6, { setAction: 'optics-geo-set' }));
-  return out;
-}
-
-function opticsDiffSpecs() {
-  return [
-    range('lambdaNm', '波长 λ', 380, 780, { unit: 'nm', digits: 0, setAction: 'optics-diff-set' }),
-    range('N', '缝数 N', 1, 12, { digits: 0, setAction: 'optics-diff-set' }),
-    range('slitMm', '缝宽 a', 0.01, 0.4, { unit: 'mm', digits: 3, setAction: 'optics-diff-set' }),
-    range('pitchMm', '缝距 d', 0.02, 1, { unit: 'mm', digits: 3, setAction: 'optics-diff-set' }),
-    range('distM', '屏距 L', 0.4, 2, { unit: 'm', setAction: 'optics-diff-set' }),
-  ];
-}
-
-function mechanicsSpecs(experiment) {
-  const controls = Array.isArray(experiment?.controls) ? experiment.controls : [];
-  return controls
-    .filter((c) => c && c.kind !== 'select')
-    .map((c) => range(c.key, c.label, c.min, c.max, {
-      unit: c.unit || '',
-      digits: c.digits ?? 2,
-      setAction: 'mechanics-source-set',
-    }));
-}
-
 /**
  * @returns {{ title: string, specs: object[] }}
  */
@@ -249,22 +173,6 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
         ],
       };
     }
-  }
-
-  if (stationId === 'optics') {
-    if (expId === 'multi_slit_diffraction') {
-      return { title: '衍射干涉 · 参数', specs: opticsDiffSpecs() };
-    }
-    // geometric family (reflection / refraction / dispersion / lens …)
-    return { title: '几何光学 · 参数', specs: opticsGeoSpecs(expId, d) };
-  }
-
-  if (stationId === 'thermo') {
-    return { title: '热学 · 参数', specs: thermoSpecs(expId, d) };
-  }
-
-  if (stationId === 'mechanics') {
-    return { title: '力学 · 参数', specs: mechanicsSpecs(experiment) };
   }
 
   return { title: '参数调节', specs: [] };

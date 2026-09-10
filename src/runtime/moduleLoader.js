@@ -13,28 +13,25 @@ const stationLoaders = Object.freeze({
   thermo: () => import('../scene/stations/thermo.js'),
   optics: () => import('../scene/stations/optics.js'),
   electro: () => import('../scene/stations/electro.js'),
-  // Chemistry is an explicit ?mode=chem launch. Do not pull its apparatus
-  // into the default physics entry chunk.
-  chem: () => import('../scene/stations/chem.js'),
 });
 
 const experimentLoaders = Object.freeze({
-  mechanics: () => import('../experiments/mechanics.js'),
-  thermo: () => import('../experiments/thermo.js'),
-  optics: () => import('../experiments/optics.js'),
+  mechanics: () => Promise.resolve({
+    station: { id: 'mechanics', title: '力学实验台', experiments: [] },
+    createHandlers: () => ({}),
+  }),
+  thermo: () => Promise.resolve({
+    station: { id: 'thermo', title: '热学实验台', experiments: [] },
+    createHandlers: () => ({}),
+  }),
+  optics: () => Promise.resolve({
+    station: { id: 'optics', title: '光学实验台', experiments: [] },
+    createHandlers: () => ({}),
+  }),
   electro: () => import('../experiments/electro.js'),
-  chem: () => import('../experiments/chem.js'),
 });
 
-const stationRuntimeLoaders = Object.freeze({
-  thermo: Object.freeze({
-    calorimetry: () => import('../reli/experiments/calorimetry.js').then((m) => m.CalorimetryExperiment),
-    convection: () => import('../reli/experiments/convection.js').then((m) => m.ConvectionExperiment),
-    'heat-conduction': () => import('../reli/experiments/heatConduction.js').then((m) => m.HeatConductionExperiment),
-    'ideal-gas': () => import('../reli/experiments/idealGas.js').then((m) => m.IdealGasExperiment),
-    'thermal-expansion': () => import('../reli/experiments/thermalExpansion.js').then((m) => m.ThermalExpansionExperiment),
-  }),
-});
+const stationRuntimeLoaders = Object.freeze({});
 
 const cache = new Map();
 
@@ -61,8 +58,7 @@ export function loadStationExperimentModule(stationId) {
 }
 
 /**
- * Load experiment handlers for a specific experiment id. Concurrent callers for
- * the same station share one Promise via the station-level cache key.
+ * Load experiment handlers for a specific experiment id.
  */
 export function loadExperimentModule(expId, stationId = findExperiment(expId)?.stationId) {
   if (!stationId) {
@@ -71,10 +67,6 @@ export function loadExperimentModule(expId, stationId = findExperiment(expId)?.s
   return loadStationExperimentModule(stationId);
 }
 
-/**
- * Convenience for callers that still want both modules after intent.
- * Prefer the split loaders on the open path so station menus stay light.
- */
 export async function loadStationBundle(stationId) {
   const [sceneModule, experimentModule] = await Promise.all([
     loadStationModule(stationId),

@@ -431,6 +431,12 @@ Section Install
   IntOp $InstallFileCount $InstallFileCount + 1
   Call UpdateInstallPercent
 
+  ; Tauri loads this DLL next to the executable before its WebView is created.
+  ; Keep it in the application root rather than the resource directory.
+  File /oname=WebView2Loader.dll "D:\wuli\src-tauri\target\release\WebView2Loader.dll"
+  IntOp $InstallFileCount $InstallFileCount + 1
+  Call UpdateInstallPercent
+
   ; Copy resources
   {{#each resources_dirs}}
     CreateDirectory "$INSTDIR\\{{this}}"
@@ -554,6 +560,7 @@ Section Uninstall
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\WebView2Loader.dll"
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"

@@ -9,7 +9,6 @@ test('scene station registry exposes one factory per experiment category', () =>
     'optics',
     'electro',
     'thermo',
-    'chem',
   ]);
   Object.values(STATION_SCENE_MODULES).forEach((createStationEquipment) => {
     assert.equal(typeof createStationEquipment, 'function');

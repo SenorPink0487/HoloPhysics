@@ -27,7 +27,6 @@ import {
   shouldUseSharedPoses,
   SIM_KIND,
 } from '../src/runtime/threading/index.js';
-import { MechanicsSourceRuntime } from '../src/scene/stations/mechanicsSourceRuntime.js';
 
 test('index barrel re-exports physics + render + bridge + sim symbols', () => {
   assert.equal(POSE_STRIDE, 10);
@@ -59,23 +58,6 @@ test('index barrel re-exports physics + render + bridge + sim symbols', () => {
   assert.equal(SIM_KIND.CONVECTION, 'thermo.convection');
   assert.equal(SIM_KIND.HALL_CARRIERS, 'electro.hallCarriers');
   assert.equal(preferredWorkerSlot(SIM_KIND.CONVECTION), 1);
-});
-
-test('mechanics runtime inherits the host physics mode unless explicitly overridden', () => {
-  const inherited = new MechanicsSourceRuntime({
-    id: 'free-fall',
-    camera: null,
-    renderer: null,
-  });
-  const explicit = new MechanicsSourceRuntime({
-    id: 'free-fall',
-    camera: null,
-    renderer: null,
-    physicsMode: 'auto',
-  });
-
-  assert.equal(inherited.physicsMode, undefined);
-  assert.equal(explicit.physicsMode, 'auto');
 });
 
 test('isPrimaryLabCanvas guards #c and data-lab-primary', () => {

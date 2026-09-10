@@ -1,11 +1,20 @@
 /**
  * Station registry — assemble experiment catalogs from category modules.
  */
-import * as mechanics from './mechanics.js';
-import * as optics from './optics.js';
 import * as electro from './electro.js';
-import * as thermo from './thermo.js';
-import * as chem from './chem.js';
+
+const mechanics = {
+  station: { id: 'mechanics', title: '力学实验台', accent: '#38bdf8', experiments: [] },
+  createHandlers: () => ({}),
+};
+const optics = {
+  station: { id: 'optics', title: '光学实验台', accent: '#fbbf24', experiments: [] },
+  createHandlers: () => ({}),
+};
+const thermo = {
+  station: { id: 'thermo', title: '热学实验台', accent: '#fb923c', experiments: [] },
+  createHandlers: () => ({}),
+};
 
 /** Module map: id → { station, createHandlers } */
 export const STATION_MODULES = {
@@ -13,7 +22,6 @@ export const STATION_MODULES = {
   optics,
   electro,
   thermo,
-  chem,
 };
 
 /** Catalog used by HUD / menus */

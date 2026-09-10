@@ -69,23 +69,14 @@ import {
   stationIdsForMode,
   PHYSICS_STATION_IDS,
 } from './runtime/catalog.js';
-import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem/labMode.js';
 
-/** Subject mode: physics (4 corner stations) | chem (center island only). */
-const labMode = resolveLabMode();
-const chemMode = isChemMode(labMode);
-const BOOT_STATION_IDS = stationIdsForMode(labMode);
+const BOOT_STATION_IDS = PHYSICS_STATION_IDS;
 let _lastFocusedTarget = null;
 let _lastCrosshairCanInteract = null;
-// Chemistry keeps several translucent panels and beaker layers visible at
-// once. Retina iPads otherwise render the whole lab at 2x–3x pixels, which is
-// disproportionate for this scene and makes touch interaction feel sticky.
 const touchDisplay = (
   Number((typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0) > 0
   || ('ontouchstart' in window)
 );
-const chemTouchDisplay = chemMode && touchDisplay;
-const CHEM_PIXEL_RATIO_CAP = 1.5;
 
 /** Continuous track or discrete action chip on the tabletop desk panel. */
 function isDeskPanelPick(pick) {
@@ -325,10 +316,7 @@ let labPostProcessing = null;
 // opt-in for visual/performance experiments; switching experiments never
 // changes the production lighting pipeline implicitly.
 const POST_PROCESSING_ENABLED = new URLSearchParams(window.location.search).has('post')
-  && !new URLSearchParams(window.location.search).has('noPost')
-  // Chemistry already has three translucent canvas panels; keep the optional
-  // SSAO/bloom chain from doubling the iPad fill-rate in this mode.
-  && !chemMode;
+  && !new URLSearchParams(window.location.search).has('noPost');
 const performanceGovernor = createPerformanceGovernor({
   renderer,
   quality: HIGH_QUALITY_PROFILE,
@@ -361,8 +349,7 @@ function getLabViewportSize() {
 }
 
 function getLabPixelRatio(requested = window.devicePixelRatio || 1) {
-  const ratio = Math.max(0.5, Number(requested) || 1);
-  return CHEM_PIXEL_RATIO_CAP ? Math.min(ratio, CHEM_PIXEL_RATIO_CAP) : ratio;
+  return Math.max(0.5, Number(requested) || 1);
 }
 
 function clearCanvasInlineSize() {
@@ -454,15 +441,9 @@ if (POST_PROCESSING_ENABLED) {
     window.devicePixelRatio || 1,
   );
 }
-// Spawn inside the room looking toward the lab center (not against the front wall).
-// Chem mode: stand at the sitting edge of the center island.
-if (chemMode) {
-  camera.position.set(0, 1.55, 2.85);
-  camera.lookAt(0, 1.15, 0.4);
-} else {
-  camera.position.set(0, 1.65, 5.0);
-  camera.lookAt(0, 1.2, 0);
-}
+// Spawn in front of the electromagnetism workstation table facing the apparatus.
+camera.position.set(-4.2, 1.65, 4.7);
+camera.lookAt(-4.2, 1.28, 0);
 
 labLoader.setProgress(0.08, '构建实验室空间…');
 
@@ -1428,7 +1409,6 @@ const STATION_BOOT = Object.freeze({
   optics: { ratio: 0.22, status: '装配光学实验台…' },
   electro: { ratio: 0.26, status: '装配电磁学实验台…' },
   thermo: { ratio: 0.30, status: '装配热力学实验台…' },
-  chem: { ratio: 0.22, status: '装配化学实验台…' },
 });
 const stationScenes = {};
 // Chem mode boots only the center-island chemistry station — never pulls
@@ -1990,14 +1970,12 @@ const STATION_LABEL = {
   optics: '光学实验台',
   electro: '电磁学实验台',
   thermo: '热力学实验台',
-  chem: '化学实验台',
 };
 const STATION_EN = {
   mechanics: 'MECHANICS',
   optics: 'OPTICS',
   electro: 'ELECTRO',
   thermo: 'THERMO',
-  chem: 'CHEMISTRY',
 };
 
 /** Shared temps for holo billboard / side tests (avoid GC in animate) */
@@ -2931,7 +2909,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
 
 // Wall-side table edges; hologram free-yaws toward the player from either side
 // tables: mechanics/optics w=3.4 @ x=±4.2,z=-2.8 | electro/thermo w=2.8 @ x=±4.2,z=2.6
-const holoConfigs = chemMode ? [] : [
+const holoConfigs = [
   { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-5.72, 0.93, -2.8], rotY: -Math.PI / 2 },
   { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-5.42, 0.93, 2.6], rotY: Math.PI / 2 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [5.72, 0.93, -2.8], rotY: Math.PI / 2 },
@@ -2940,7 +2918,7 @@ const holoConfigs = chemMode ? [] : [
 // Front-of-table floating content screens: table "front" faces the chalkboard wall (-Z).
 // Positioned close to the back edge of each table at comfortable eye level.
 // Param sliders are physical controls flush on the sitting edge (see deskSliderPanels).
-const displayConfigs = chemMode ? [] : [
+const displayConfigs = [
   { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-3.4, 1.78, -3.75], rotY: 0 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [4.2, 1.78, -3.75], rotY: 0 },
   // Content displays float at comfortable eye level with balanced distance to the bench
@@ -2969,38 +2947,6 @@ displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   if (holos[id]) holos[id].userData.display = d;
 });
 
-// Chemistry is a separate explicit lab mode. Load its 3D HUD only after the
-// physics shell selected that mode, so a normal physics launch never parses
-// chemistry canvas/UI code.
-/** @type {{ left?: object, right?: object, periodic?: object, list: object[] } | null} */
-let chemHoloSet = null;
-let updateReagentSearchDockPosition = null;
-if (chemMode) {
-  const [{ createChemHoloSet }, reagentDock] = await Promise.all([
-    import('./chem/chemHolos.js'),
-    import('./chem/reagentSearchDock.js'),
-  ]);
-  chemHoloSet = createChemHoloSet(THREE, primitives, scene);
-  updateReagentSearchDockPosition = reagentDock.updateReagentSearchDockPosition;
-}
-if (chemHoloSet) {
-  // Register as chem displays so HUD push + interactables can find them.
-  stationDisplays.chem = chemHoloSet.left;
-  stationDisplays['chem-right'] = chemHoloSet.right;
-  stationDisplays['chem-periodic'] = chemHoloSet.periodic;
-  holos.chem = chemHoloSet.left;
-
-  // Always yaw L/R/periodic holos toward the player & sync search dock to front 3D screen
-  stationContext.registerAnimator(() => {
-    chemHoloSet.list.forEach((panel) => {
-      try { panel.userData.faceCamera?.(camera); } catch { /* ignore */ }
-    });
-    if (chemHoloSet.periodic?.userData?.present) {
-      updateReagentSearchDockPosition?.(chemHoloSet.periodic, camera);
-    }
-  });
-}
-
 // Tabletop param sliders — flush on the sitting edge, clear of apparatus.
 // Table tops: makeTechTable h=0.88, top thickness 0.05 → surface y ≈ 0.905.
 // mechanics/optics: w=3.4 d=1.15 @ (±4.2, -2.8) → x∈[±2.5,±5.9], z∈[-3.375,-2.225]
@@ -3008,7 +2954,7 @@ if (chemHoloSet) {
 // Sitting edge = table +Z. Panel grows inward (−Z). X parks next to the nameplate
 // in the free front corner so multi-row cards don't sit under the experiment rail.
 const DESK_TOP_Y = 0.908;
-const DESK_SLIDER_LAYOUT = chemMode ? {} : {
+const DESK_SLIDER_LAYOUT = {
   // mechanics nameplate @ (-2.85, -2.32) → panel further −X (room-outer free corner)
   mechanics: {
     worldX: -4.55, worldY: DESK_TOP_Y, worldZ: -2.24,
@@ -3089,7 +3035,6 @@ const equipment = {
   optics: stationScenes.optics?.equipment || null,
   electro: stationScenes.electro?.equipment || null,
   thermo: stationScenes.thermo?.equipment || null,
-  chem: stationScenes.chem?.equipment || null,
 };
 const loadedStationModules = {};
 
@@ -3377,55 +3322,13 @@ function updateAimHud(target, canInteract) {
   }
 
   const role = target.userData?.role;
-  const isLabel = target.userData?.isLabel || role === 'chem_cup_a_label' || role === 'chem_cup_b_label';
-  const kind = target.userData?.kind || (role?.includes('a') ? 'A' : role?.includes('b') ? 'B' : '');
 
   let title = '未知设备';
   let isInteractive = !!(target.userData?.interactive || canInteract);
   let badgeText = isInteractive ? '可交互' : '只读';
 
-  if (isLabel) {
-    title = `烧杯 ${kind} · 黑色标签 (点击打开试剂选择面板)`;
-    isInteractive = true;
-    badgeText = '点击选择';
-  } else if (role === 'chem_cup_a' || role === 'chem_cup_b') {
-    title = `烧杯 ${kind} · 杯体 (按住拖拽移动/倾倒)`;
-    isInteractive = true;
-    badgeText = '按住拖拽';
-  } else if (target.userData?.type === 'holo_display' || target.userData?.role === 'holo_display') {
-    const chemKind = target.userData?.chemKind;
-    if (chemKind === 'periodic') {
-      const pick = target.userData?.pickFromRay?.(raycaster);
-      if (pick?.action === 'chem-close-picker' || pick?.action === 'close') {
-        title = '关闭元素周期表面板';
-        badgeText = '点击关闭';
-        isInteractive = true;
-      } else if (pick?.action === 'chem-picker-back') {
-        title = '返回元素周期表';
-        badgeText = '点击返回';
-        isInteractive = true;
-      } else if (pick?.action === 'chem-pick-element') {
-        title = `选择元素 ${pick.element || ''}`;
-        badgeText = '点击选择';
-        isInteractive = true;
-      } else if (pick?.action === 'chem-pick-reagent') {
-        title = '装入烧杯试剂';
-        badgeText = '点击装入';
-        isInteractive = true;
-      } else {
-        title = '元素周期表悬浮屏 (点选元素/试剂)';
-        badgeText = '点选试剂';
-        isInteractive = true;
-      }
-    } else if (chemKind === 'left') {
-      title = '实验状态悬浮屏';
-      badgeText = '状态显示';
-      isInteractive = false;
-    } else if (chemKind === 'right') {
-      title = '成分 3D 结构面板 (点击成分看 3D)';
-      badgeText = '查看 3D';
-    } else {
-      const pick = target.userData?.pickFromRay?.(raycaster);
+  if (target.userData?.type === 'holo_display' || target.userData?.role === 'holo_display') {
+    const pick = target.userData?.pickFromRay?.(raycaster);
       if (pick) {
         if (pick.action === 'hall-chart') {
           const showCurve = expManager?.state?.data?.showCurve;
@@ -3476,7 +3379,6 @@ function updateAimHud(target, canInteract) {
         badgeText = '瞄准按钮';
         isInteractive = false;
       }
-    }
   } else if (target.userData?.type === 'formula_board' || role === 'formula_board') {
     title = '公式知识卡片墙';
     badgeText = '点击展开';
@@ -3792,8 +3694,6 @@ function pushHudToHoloScreens(hud) {
 
   Object.entries(stationDisplays).forEach(([id, d]) => {
     if (!d?.userData) return;
-    // Chem always-on holos are managed below — never force-hide them here.
-    if (d.userData.chemKind) return;
     const want = runningHere && id === activeId;
     if (!want && (d.userData.present || d.userData.active)) {
       // Hide without painting dense experiment chrome.
@@ -3809,29 +3709,6 @@ function pushHudToHoloScreens(hud) {
       d.userData.setPresent?.(true);
     }
   });
-
-  // Chemistry L/R always-on + periodic picker: push data every HUD pulse.
-  if (chemHoloSet && payload) {
-    const chemData = payload.data || {};
-    labFrameScheduler.schedule('hud:chem-holos', () => {
-      const snap = lastHudSnapshot;
-      const data = snap?.data || chemData;
-      const pickerOpen = !!data?.pickerOpen;
-      chemHoloSet.list.forEach((panel) => {
-        try { panel.userData.setHud?.({ data, ...snap }); } catch { /* ignore */ }
-      });
-      try {
-        equipment?.chem?.rig?.setDimmed?.(pickerOpen);
-      } catch { /* ignore */ }
-      // Keep HTML AI search dock in sync with picker visibility
-      try {
-        import('./chem/reagentSearchDock.js').then((m) => {
-          if (pickerOpen) m.showReagentSearchDock?.({ activeCup: data.activeCup || 'A', keepStatus: true });
-          else m.hideReagentSearchDock?.();
-        });
-      } catch { /* ignore */ }
-    }, { priority: 98 });
-  }
 
   if (!activeId || !payload) return;
 
@@ -3854,8 +3731,7 @@ function pushHudToHoloScreens(hud) {
   }, { priority: 100, soft: false });
 
   // ── Content display: direct layout on running experiment ──
-  // Chem uses dedicated holos (not the physics display painter).
-  if (runningHere && activeId !== 'chem') {
+  if (runningHere) {
     labFrameScheduler.cancel(`hud:display-shell:${activeId}`);
     const paintFull = () => {
       const d = stationDisplays[activeId];
@@ -4166,7 +4042,7 @@ const shaderWarmup = createShaderWarmupController({
 });
 
 function startBackgroundShaderWarmup({ force = false } = {}) {
-  if (chemMode || webglContextLost || shaderWarmupPromise) return shaderWarmupPromise;
+  if (webglContextLost || shaderWarmupPromise) return shaderWarmupPromise;
   shaderWarmupPromise = shaderWarmup.run({
     force: force || shaderWarmupResetRequested,
     revalidate: force || shaderWarmupResetRequested,
@@ -4499,75 +4375,6 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('prev
   if (previewParams.get('fullscreen') === '1') {
     requestAnimationFrame(() => openHoloFullscreen('electro'));
   }
-}
-
-// Development-only visual QA shortcut for the migrated mechanics rigs.
-if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'mechanics') {
-  const previewParams = new URLSearchParams(window.location.search);
-  const mechanicsExp = previewParams.get('exp') || 'free-fall';
-  const showMechanicsPreview = (expId) => {
-    void openStationMenuSafe('mechanics');
-    void startExperimentSafe(expId);
-    camera.position.set(-4.2, expId === 'free-fall' ? 2.15 : 1.75, 0.35);
-    camera.lookAt(-4.2, expId === 'free-fall' ? 1.65 : 1.15, -2.8);
-  };
-  showMechanicsPreview(mechanicsExp);
-  window.__mechanicsQa = Object.freeze({
-    start: showMechanicsPreview,
-    snapshot: (expId) => equipment.mechanics?.snapshot?.(expId || expManager.state.expId),
-    setParam: (key, value) => expManager.uiAction('mechanics-source-set', { key, value }),
-    action: (id) => expManager.uiAction('mechanics-source-action', { id }),
-    fullscreen: () => openHoloFullscreen('mechanics'),
-  });
-  if (previewParams.get('fullscreen') === '1') {
-    requestAnimationFrame(() => openHoloFullscreen('mechanics'));
-  }
-}
-
-// Development-only visual QA shortcut for the migrated thermodynamics rigs.
-if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'thermo') {
-  const previewParams = new URLSearchParams(window.location.search);
-  const thermoExp = previewParams.get('exp') || 'calorimetry';
-  void openStationMenuSafe('thermo');
-  void startExperimentSafe(thermoExp);
-  camera.position.set(4.2, 1.6, 4.9);
-  camera.lookAt(4.2, 1.28, 2.6);
-  if (previewParams.get('fullscreen') === '1') {
-    requestAnimationFrame(() => openHoloFullscreen('thermo'));
-  }
-}
-
-if (import.meta.env.DEV && ['diffraction', 'diffraction-fullscreen'].includes(new URLSearchParams(window.location.search).get('preview'))) {
-  const previewParams = new URLSearchParams(window.location.search);
-  void openStationMenuSafe('optics');
-  void startExperimentSafe('multi_slit_diffraction');
-  camera.position.set(4.15, 1.55, -1.15);
-  camera.lookAt(4.2, 1.02, -2.8);
-  if (previewParams.get('fullscreen') === '1' || previewParams.get('preview') === 'diffraction-fullscreen') {
-    requestAnimationFrame(() => openHoloFullscreen('optics'));
-  }
-}
-
-// Development-only visual QA for geometric optics (guangxue migration).
-if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'optics-geo') {
-  const previewParams = new URLSearchParams(window.location.search);
-  const geoExp = previewParams.get('exp') || 'reflection';
-  // Defer until the room is interactive so preview does not race boot reveal.
-  const startOpticsPreview = () => {
-    if (!document.body.classList.contains('lab-ready')) {
-      requestAnimationFrame(startOpticsPreview);
-      return;
-    }
-    console.log('[open-trace] optics-geo preview start after lab-ready');
-    void openStationMenuSafe('optics');
-    void startExperimentSafe(geoExp);
-    camera.position.set(4.15, 1.7, -0.9);
-    camera.lookAt(4.2, 1.05, -2.8);
-    if (previewParams.get('fullscreen') === '1') {
-      requestAnimationFrame(() => openHoloFullscreen('optics'));
-    }
-  };
-  startOpticsPreview();
 }
 
 // DOM panel kept as accessibility fallback (hidden); wire buttons if re-enabled
@@ -4944,12 +4751,8 @@ let lastElectroPointerEventTime = 0;
 // pointer sequence. Screen buttons act on pointerdown for immediate feedback,
 // so accepting that synthetic mousedown would toggle discrete controls twice.
 let lastTouchPointerEventTime = -Infinity;
-function isChemSearchControlPick(pick) {
-  return /^chem-search-(focus|voice|submit)$/.test(String(pick?.action || ''));
-}
 function isHoloControlPrioritized(pick) {
   if (!pick) return false;
-  if (isChemSearchControlPick(pick)) return true;
   const action = String(pick.action || '');
   if (action.startsWith('hall-')) return true;
   return false;
@@ -5031,7 +4834,6 @@ function unlockedElectroPick(event) {
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
-    'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
     'mechanics_viscosity_ball',
   ];
   const roleSet = new Set(preferredRoles);
@@ -5443,9 +5245,7 @@ function pickLiveElectroChargeHit(hits) {
                 ? ['geo_source', 'geo_optic', 'geo_sample', 'geo_slit']
                 : expId === 'calorimetry'
                   ? ['thermo_hot_beaker', 'thermo_cold_beaker']
-                  : (expId === 'reagent-mix' || chemMode)
-                    ? ['chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b']
-                    : expId === 'viscosity'
+                  : expId === 'viscosity'
                       ? ['mechanics_viscosity_ball']
                       : null;
   if (!preferredRoles || !hits?.length) return null;
@@ -5803,7 +5603,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         });
         return true;
       }
-      if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
+      if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components') {
         if (directContext) {
           expManager.beginManipulation(aimedHolo, {
             ...directContext,
@@ -5889,7 +5689,6 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
-    'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
     'mechanics_viscosity_ball',
   ]);
   const directIsCharge = !!(
@@ -6003,7 +5802,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           });
           return true;
         }
-        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
+        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components') {
           if (directContext) {
             expManager.beginManipulation(screen, {
               ...directContext,
@@ -6037,20 +5836,6 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   }
 
   if (target) {
-    const chemCup = target.userData?.role === 'chem_cup_a' || target.userData?.role === 'chem_cup_b';
-    // Chem cups: ensure experiment is running, then click opens picker / drag pours.
-    if (chemCup && chemMode && !expManager?.state?.running) {
-      void (async () => {
-        try {
-          await openStationMenuSafe('chem');
-          await startExperimentSafe('reagent-mix');
-          expManager?.interact?.(target, clock.elapsedTime);
-        } catch (err) {
-          console.warn('[lab] chem cup cold-start failed', err);
-        }
-      })();
-      return true;
-    }
     if (directContext) {
       expManager.beginManipulation(target, {
         ...directContext,
@@ -6082,7 +5867,6 @@ function syncMouseDragState() {
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.holdLMB = holding;
   if (equipment?.mechanics?.mouseDrag) equipment.mechanics.mouseDrag.holdLMB = holding;
   if (equipment?.thermo?.mouseDrag) equipment.thermo.mouseDrag.holdLMB = holding;
-  if (equipment?.chem?.mouseDrag) equipment.chem.mouseDrag.holdLMB = holding;
 }
 
 function resetMouseDragAccum() {
@@ -6553,10 +6337,10 @@ document.addEventListener('wheel', (e) => {
   // Prefer the scrollable-table hit metadata even when the ray currently rests
   // on a nearby button, so maxRows/maxStart match the painted viewport.
   let wheelPick = pick;
-  if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table' && pick?.role !== 'scrollable_components' && pick?.action !== 'chem-scroll-right') {
+  if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table' && pick?.role !== 'scrollable_components') {
     const regions = target?.userData?.hitRegions;
     const scrollHit = Array.isArray(regions)
-      ? regions.find((h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table' || h?.role === 'scrollable_components' || h?.action === 'chem-scroll-right')
+      ? regions.find((h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table' || h?.role === 'scrollable_components')
       : null;
     if (scrollHit) wheelPick = scrollHit;
   }
@@ -6785,7 +6569,7 @@ canvas.addEventListener('webglcontextrestored', () => {
   frameCoordinator.invalidate();
   showToast('Graphics restored; select an experiment to reload it');
   const resume = () => {
-    if (!webglContextLost && !chemMode) void startBackgroundShaderWarmup({ force: true });
+    if (!webglContextLost) void startBackgroundShaderWarmup({ force: true });
   };
   if (shaderWarmupPromise) void shaderWarmupPromise.catch(() => {}).then(resume);
   else requestAnimationFrame(resume);
@@ -7485,7 +7269,6 @@ function focusStationForMenu(stationId) {
     optics: { position: [4.15, 1.55, -1.15], target: [4.2, 1.02, -2.8] },
     electro: { position: [-4.0, 1.45, 3.65], target: [-4.0, 1.12, 2.55] },
     thermo: { position: [4.2, 1.6, 4.9], target: [4.2, 1.28, 2.6] },
-    chem: { position: [0, 1.55, 2.85], target: [0, 1.15, 0.4] },
   }[stationId];
   if (!preset) return false;
   const position = new THREE.Vector3().fromArray(preset.position);
@@ -7507,7 +7290,6 @@ const stationPredictionPoints = Object.freeze({
   optics: new THREE.Vector3(4.2, 1, -2.8),
   electro: new THREE.Vector3(-4.2, 1, 2.6),
   thermo: new THREE.Vector3(4.2, 1, 2.6),
-  chem: new THREE.Vector3(0, 1, 0.4),
 });
 const stationPredictionDirection = new THREE.Vector3();
 const stationPredictionVector = new THREE.Vector3();
@@ -7564,13 +7346,8 @@ async function softRestartLab() {
     stationPresence?.setHotStation?.(null);
   }
 
-  if (chemMode) {
-    camera.position.set(0, 1.55, 2.85);
-    camera.lookAt(0, 1.15, 0.4);
-  } else {
-    camera.position.set(0, 1.65, 5.0);
-    camera.lookAt(0, 1.2, 0);
-  }
+  camera.position.set(-4.2, 1.65, 4.7);
+  camera.lookAt(-4.2, 1.28, 0);
   camera.updateMatrixWorld(true);
   updateAimHud(null, false);
   resetMouseDragAccum();
@@ -7583,7 +7360,7 @@ async function softRestartLab() {
 
   // Resume post-entry compilation only while no experiment is active. The
   // current renderer/cache are intentionally left untouched.
-  if (!chemMode) void startBackgroundShaderWarmup();
+  void startBackgroundShaderWarmup();
   return true;
 }
 
@@ -7680,30 +7457,9 @@ async function bootReveal() {
     const wait = Math.max(0, MIN_BOOT_MS - (performance.now() - bootStarted));
     if (wait) await new Promise((r) => setTimeout(r, wait));
 
-    labLoader.setProgress(1, chemMode ? '系统就绪 · 欢迎进入化学实验室' : '系统就绪 · 欢迎进入实验室');
+    labLoader.setProgress(1, '系统就绪 · 欢迎进入实验室');
     await labLoader.finish();
     labPerfStats.bootMs = Number((performance.now() - bootStarted).toFixed(2));
-
-    // Entered the lab: physical experiments compile on demand when the user
-    // approaches or focuses an experiment card, rather than running an aggressive
-    // background compile storm on entry.
-
-    // Chem mode: skip station menu — hot the island and start reagent-mix immediately.
-    if (chemMode) {
-      try {
-        markUserIntent?.();
-        await openStationMenuSafe('chem');
-        await startExperimentSafe('reagent-mix');
-        focusStationForMenu('chem');
-        // Keep L/R holos present after manager open (manager may hide displays).
-        chemHoloSet?.left?.userData?.setPresent?.(true);
-        chemHoloSet?.right?.userData?.setPresent?.(true);
-        invalidateStationPickables?.('chem');
-        showToast?.('化学实验台就绪 · 点击烧杯选择试剂');
-      } catch (err) {
-        console.warn('[lab] chem auto-start failed', err);
-      }
-    }
 
     if (window.__labDebug) {
       Object.assign(window.__labDebug, labPerfSnapshot());
