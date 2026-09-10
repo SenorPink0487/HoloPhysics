@@ -4,6 +4,8 @@ import sharp from 'sharp';
 
 const SOURCE_IMAGE = 'E:/桌面/图片素材/背景1.png';
 const FALLBACK_SOURCE = 'src-tauri/nsis/background.png';
+const LOGO_SOURCE = 'src-tauri/icons/icon.png';
+const RAW_LOGO_SOURCE = 'E:/桌面/图片素材/logo.png';
 const OUT_DIR = 'src-tauri/nsis';
 
 export async function prepareAssets(width = 768, height = 512) {
@@ -23,12 +25,76 @@ export async function prepareAssets(width = 768, height = 512) {
   const outBmp = path.join(OUT_DIR, 'background.bmp');
   const outPng = path.join(OUT_DIR, 'background.png');
 
-  if (path.resolve(sourceToUse) !== path.resolve(outPng)) {
-    fs.copyFileSync(sourceToUse, outPng);
+  // 1. Resize base background to target 768x512
+  const baseBgBuffer = await sharp(sourceToUse)
+    .resize(width, height)
+    .toBuffer();
+
+  // 2. Obtain rounded logo
+  let logoBuffer = null;
+  if (fs.existsSync(LOGO_SOURCE)) {
+    logoBuffer = fs.readFileSync(LOGO_SOURCE);
+  } else if (fs.existsSync(RAW_LOGO_SOURCE)) {
+    const rawLogo = fs.readFileSync(RAW_LOGO_SOURCE);
+    const radius = Math.round(512 * 0.25);
+    const maskSvg = Buffer.from(`
+      <svg width="512" height="512" viewBox="0 0 512 512">
+        <rect x="0" y="0" width="512" height="512" rx="${radius}" ry="${radius}" fill="#fff"/>
+      </svg>
+    `);
+    logoBuffer = await sharp(rawLogo)
+      .resize(512, 512, { fit: 'cover' })
+      .ensureAlpha()
+      .composite([{ input: maskSvg, blend: 'dest-in' }])
+      .png()
+      .toBuffer();
   }
 
-  const { data } = await sharp(sourceToUse)
-    .resize(width, height)
+  let finalPngBuffer;
+  if (logoBuffer) {
+    // Cover the template interlocking circles (x: 674..703, y: 457..476 in 768x512)
+    const patch = await sharp({
+      create: {
+        width: 70,
+        height: 35,
+        channels: 3,
+        background: { r: 246, g: 247, b: 247 }
+      }
+    }).png().toBuffer();
+
+    const logoSize = 32;
+    const resizedLogo = await sharp(logoBuffer)
+      .resize(logoSize, logoSize)
+      .toBuffer();
+
+    // Composite patch and logo in place of the old circles
+    // Aligned to text left margin x=675, y=456
+    finalPngBuffer = await sharp(baseBgBuffer)
+      .composite([
+        { input: patch, left: 670, top: 455 },
+        { input: resizedLogo, left: 675, top: 456 }
+      ])
+      .png()
+      .toBuffer();
+
+    console.log(`[Installer Assets] Embedded custom 25% rounded logo (${logoSize}x${logoSize}) at (675, 456) replacing placeholder logo`);
+  } else {
+    finalPngBuffer = baseBgBuffer;
+  }
+
+  // Save background.png
+  fs.writeFileSync(outPng, finalPngBuffer);
+
+  // Copy preview to artifact folder
+  const previewPath = 'C:/Users/Senor/.gemini/antigravity/brain/18eae520-d263-4ed0-a549-4a66a4df0e13/installer_background_with_logo.png';
+  try {
+    fs.writeFileSync(previewPath, finalPngBuffer);
+  } catch (e) {
+    // ignore
+  }
+
+  // 3. Generate uncompressed 24-bit BMP for NSIS
+  const { data } = await sharp(finalPngBuffer)
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });

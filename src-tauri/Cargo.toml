@@ -1,15 +1,19 @@
 [package]
-name = "quantum-physics-lab"
+name = "DAWU"
 version = "0.2.3"
-description = "未来物理实验室 — interactive 3D physics lab (Tauri 2)"
+description = "DAWU"
 authors = ["wuli"]
 edition = "2021"
 
 [lib]
-name = "quantum_physics_lab_lib"
+name = "dawu_lib"
 # Desktop-only: rlib is enough. Including cdylib on MinGW triggers
 # "export ordinal too large" linker failures. Add "staticlib", "cdylib" for mobile.
 crate-type = ["rlib"]
+
+[[bin]]
+name = "DAWU"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

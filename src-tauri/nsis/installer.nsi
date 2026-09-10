@@ -74,7 +74,6 @@ Var OldMainBinaryName
 Var InnerDlgHWnd
 Var PercentLabelHWnd
 Var ProgressBarHWnd
-Var CustomProgressBarHWnd
 Var LastPercent
 Var TimerId
 Var BgBitmapHandle
@@ -127,7 +126,18 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !endif
 
 !if "${INSTALLERICON}" != ""
+  Icon "${INSTALLERICON}"
   !define MUI_ICON "${INSTALLERICON}"
+!endif
+
+!if "${UNINSTALLERICON}" != ""
+  UninstallIcon "${UNINSTALLERICON}"
+  !define MUI_UNICON "${UNINSTALLERICON}"
+!else
+  !if "${INSTALLERICON}" != ""
+    UninstallIcon "${INSTALLERICON}"
+    !define MUI_UNICON "${INSTALLERICON}"
+  !endif
 !endif
 
 !define MUI_LANGDLL_REGISTRY_ROOT "HKCU"
@@ -206,59 +216,55 @@ Function InstFilesShow
   System::Call 'user32::LoadImage(p 0, w "$PLUGINSDIR\background.bmp", i 0, i 768, i 512, i 0x00000010) p .r5'
   StrCpy $BgBitmapHandle $5
 
+  ; Set taskbar and window icon (WM_SETICON)
+  File "/oname=$PLUGINSDIR\appicon.ico" "${INSTALLERICON}"
+  System::Call 'user32::LoadImage(p 0, w "$PLUGINSDIR\appicon.ico", i 1, i 32, i 32, i 0x00000010) p .r1'
+  ${If} $1 != 0
+    SendMessage $HWNDPARENT 0x0080 0 $1 ; WM_SETICON, ICON_SMALL
+    SendMessage $HWNDPARENT 0x0080 1 $1 ; WM_SETICON, ICON_BIG
+  ${EndIf}
+
   System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "", i 0x5400000E, i 0, i 0, i 768, i 512, p $InnerDlgHWnd, i 1199, i 0, i 0) p .r6'
   SendMessage $6 0x0172 0 $BgBitmapHandle
 
-  ; Percentage & status label as child of $6
-  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "正在安装 0%", i 0x50000001, i 314, i 446, i 140, i 20, p r6, i 1200, i 0, i 0) p .r7'
+  ; Two pure digits percentage label at center-bottom: X=314, Y=382, W=140, H=72 (SS_CENTER=0x1)
+  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "00", i 0x50000001, i 314, i 382, i 140, i 72, p $InnerDlgHWnd, i 1200, i 0, i 0) p .r7'
   StrCpy $PercentLabelHWnd $7
 
-  ; Font: Segoe UI, 14px, Medium (500)
-  System::Call 'gdi32::CreateFont(i 14, i 0, i 0, i 0, i 500, i 0, i 0, i 0, i 1, i 0, i 0, i 5, i 0, w "Segoe UI") p .r8'
+  ; Font: Bodoni MT, 62px, Bold (700), ClearType via CreateFontW
+  System::Call 'gdi32::CreateFontW(i 62, i 0, i 0, i 0, i 700, i 0, i 0, i 0, i 1, i 0, i 0, i 5, i 0, w "Bodoni MT") p .r8'
   StrCpy $FontHandle $8
   SendMessage $PercentLabelHWnd 0x0030 $FontHandle 1
 
-  ; Custom sleek progress bar as child of $6: X=234, Y=470, W=300, H=4
-  System::Call 'user32::CreateWindowEx(i 0, w "msctls_progress32", w "", i 0x50000001, i 234, i 470, i 300, i 4, p r6, i 1201, i 0, i 0) p .r9'
-  StrCpy $CustomProgressBarHWnd $9
-  SendMessage $CustomProgressBarHWnd 0x0402 0 0
+  ; Set background color to exact match #F6F7F7, text to #C6CED5 (exact HoloGrip color)
+  SetCtlColors $PercentLabelHWnd "C6CED5" "F6F7F7"
 
   StrCpy $LastPercent 0
-
-  ; Do not install a native callback timer here. NSIS can execute the
-  ; installation section without it, and callback dispatch through
-  ; System.dll is not reliable during installer startup.
   StrCpy $TimerId 0
 FunctionEnd
 
-Function OnProgressTimerTick
-  ${If} $ProgressBarHWnd != 0
-    SendMessage $ProgressBarHWnd 0x0408 0 0 $0 ; PBM_GETPOS
-    StrCpy $1 $0
-    ${If} $1 > 100
-      StrCpy $1 100
-    ${EndIf}
-    ${If} $1 != $LastPercent
-      StrCpy $LastPercent $1
-      ${If} $CustomProgressBarHWnd != 0
-        SendMessage $CustomProgressBarHWnd 0x0402 $1 0 ; PBM_SETPOS
+Function StepToPercent
+  ; Input: $R0 (target percent)
+  ${If} $PercentLabelHWnd != 0
+    ${While} $LastPercent < $R0
+      IntOp $LastPercent $LastPercent + 1
+      ${If} $LastPercent < 10
+        StrCpy $1 "0$LastPercent"
+      ${ElseIf} $LastPercent >= 100
+        StrCpy $1 "99"
+      ${Else}
+        StrCpy $1 "$LastPercent"
       ${EndIf}
-      ${If} $PercentLabelHWnd != 0
-        SendMessage $PercentLabelHWnd 0x000C 0 "STR:正在安装 $1%" ; WM_SETTEXT
-      ${EndIf}
-    ${EndIf}
+      SendMessage $PercentLabelHWnd 0x000C 0 "STR:$1"
+      Sleep 8
+    ${EndWhile}
   ${EndIf}
 FunctionEnd
 
 Function UpdateInstallPercent
-  ${If} $LastPercent < 90
-    StrCpy $LastPercent 90
-    ${If} $CustomProgressBarHWnd != 0
-      SendMessage $CustomProgressBarHWnd 0x0402 90 0
-    ${EndIf}
-    ${If} $PercentLabelHWnd != 0
-      SendMessage $PercentLabelHWnd 0x000C 0 "STR:正在安装 90%"
-    ${EndIf}
+  ${If} $LastPercent < 85
+    IntOp $R0 $LastPercent + 10
+    Call StepToPercent
   ${EndIf}
 FunctionEnd
 
@@ -266,41 +272,121 @@ Function RunMainBinary
   nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
 FunctionEnd
 
-; Uninstaller Pages
-Var DeleteAppDataCheckbox
-Var DeleteAppDataCheckboxState
-!define /ifndef WS_EX_LAYOUTRTL 0x00400000
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
-Function un.ConfirmShow
-  FindWindow $1 "#32770" "" $HWNDPARENT
-  System::Call "user32::GetDpiForWindow(p r1) i .r2"
-  ${If} $(^RTL) = 1
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"
-    IntOp $4 50 * $2
-  ${Else}
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
-    IntOp $4 0 * $2
+; -------------------------------------------------------------
+; Single Automatic Uninstallation Page (UninstFiles with custom UI)
+; -------------------------------------------------------------
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.InstFilesShow
+!insertmacro MUI_UNPAGE_INSTFILES
+
+Function un.InstFilesShow
+  FindWindow $InnerDlgHWnd "#32770" "" $HWNDPARENT
+
+  ; 1. Remove title bar and window frame to make it completely borderless
+  System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -16) i .r2'
+  IntOp $2 $2 & 0xFF30FFFF
+  System::Call 'user32::SetWindowLong(p $HWNDPARENT, i -16, i r2)'
+
+  ; Clear EXSTYLE window borders
+  System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -20) i .r3'
+  IntOp $3 $3 & 0xFFFDDCFE
+  System::Call 'user32::SetWindowLong(p $HWNDPARENT, i -20, i r3)'
+
+  ; Center on screen with exact 768x512 size
+  System::Call 'user32::GetSystemMetrics(i 0) i .r4'
+  System::Call 'user32::GetSystemMetrics(i 1) i .r5'
+  IntOp $4 $4 - 768
+  IntOp $4 $4 / 2
+  IntOp $5 $5 - 512
+  IntOp $5 $5 / 2
+
+  ; Set $HWNDPARENT size and position with SWP_FRAMECHANGED (0x0020) | SWP_NOZORDER (0x0004) = 0x0024
+  System::Call 'user32::SetWindowPos(p $HWNDPARENT, p 0, i r4, i r5, i 768, i 512, i 0x0024)'
+
+  ; Windows 11 rounded corners (DWMWCP_ROUND = 2)
+  System::Call '*(i 2) p .r1'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 33, p r1, i 4)'
+  System::Free $1
+
+  ; Resize $InnerDlgHWnd to cover the entire window (0, 0, 768, 512)
+  System::Call 'user32::SetWindowPos(p $InnerDlgHWnd, p 0, i 0, i 0, i 768, i 512, i 0x0014)'
+
+  ; Hide and banish all controls on $HWNDPARENT
+  StrCpy $0 0
+  un_loop_controls:
+    IntOp $0 $0 + 1
+    ${If} $0 > 1300
+      Goto un_done_controls
+    ${EndIf}
+    GetDlgItem $1 $HWNDPARENT $0
+    ${If} $1 != 0
+      ShowWindow $1 0
+      EnableWindow $1 0
+      System::Call 'user32::SetWindowPos(p r1, p 0, i -2000, i -2000, i 0, i 0, i 0x0014)'
+    ${EndIf}
+    Goto un_loop_controls
+  un_done_controls:
+
+  ; Hide standard inner controls on $InnerDlgHWnd
+  GetDlgItem $1 $InnerDlgHWnd 1006
+  ShowWindow $1 0
+  GetDlgItem $1 $InnerDlgHWnd 1016
+  ShowWindow $1 0
+  GetDlgItem $1 $InnerDlgHWnd 1027
+  ShowWindow $1 0
+
+  ; Progress bar handle (hidden visually so we can query its progress)
+  GetDlgItem $ProgressBarHWnd $InnerDlgHWnd 1004
+  ShowWindow $ProgressBarHWnd 0
+
+  ; Load and set the complete user-supplied background bitmap (768x512)
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\background.bmp" "${MAINBINARYDIR}\..\..\..\nsis\background.bmp"
+  System::Call 'user32::LoadImage(p 0, w "$PLUGINSDIR\background.bmp", i 0, i 768, i 512, i 0x00000010) p .r5'
+  StrCpy $BgBitmapHandle $5
+
+  ; Set taskbar and window icon (WM_SETICON)
+  File "/oname=$PLUGINSDIR\appicon.ico" "${INSTALLERICON}"
+  System::Call 'user32::LoadImage(p 0, w "$PLUGINSDIR\appicon.ico", i 1, i 32, i 32, i 0x00000010) p .r1'
+  ${If} $1 != 0
+    SendMessage $HWNDPARENT 0x0080 0 $1 ; WM_SETICON, ICON_SMALL
+    SendMessage $HWNDPARENT 0x0080 1 $1 ; WM_SETICON, ICON_BIG
   ${EndIf}
-  IntOp $5 100 * $2
-  IntOp $6 400 * $2
-  IntOp $7 25 * $2
-  IntOp $4 $4 / 96
-  IntOp $5 $5 / 96
-  IntOp $6 $6 / 96
-  IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
-  Pop $DeleteAppDataCheckbox
-  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
-  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
+
+  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "", i 0x5400000E, i 0, i 0, i 768, i 512, p $InnerDlgHWnd, i 1199, i 0, i 0) p .r6'
+  SendMessage $6 0x0172 0 $BgBitmapHandle
+
+  ; Two pure digits percentage label at center-bottom: X=314, Y=382, W=140, H=72 (SS_CENTER=0x1)
+  System::Call 'user32::CreateWindowEx(i 0, w "STATIC", w "00", i 0x50000001, i 314, i 382, i 140, i 72, p $InnerDlgHWnd, i 1200, i 0, i 0) p .r7'
+  StrCpy $PercentLabelHWnd $7
+
+  ; Font: Bodoni MT, 62px, Bold (700), ClearType via CreateFontW
+  System::Call 'gdi32::CreateFontW(i 62, i 0, i 0, i 0, i 700, i 0, i 0, i 0, i 1, i 0, i 0, i 5, i 0, w "Bodoni MT") p .r8'
+  StrCpy $FontHandle $8
+  SendMessage $PercentLabelHWnd 0x0030 $FontHandle 1
+
+  ; Set background color to exact match #F6F7F7, text to #C6CED5 (exact HoloGrip color)
+  SetCtlColors $PercentLabelHWnd "C6CED5" "F6F7F7"
+
+  StrCpy $LastPercent 0
 FunctionEnd
 
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
-Function un.ConfirmLeave
-  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
+Function un.StepToPercent
+  ; Input: $R0 (target percent)
+  ${If} $PercentLabelHWnd != 0
+    ${While} $LastPercent < $R0
+      IntOp $LastPercent $LastPercent + 1
+      ${If} $LastPercent < 10
+        StrCpy $1 "0$LastPercent"
+      ${ElseIf} $LastPercent >= 100
+        StrCpy $1 "99"
+      ${Else}
+        StrCpy $1 "$LastPercent"
+      ${EndIf}
+      SendMessage $PercentLabelHWnd 0x000C 0 "STR:$1"
+      Sleep 8
+    ${EndWhile}
+  ${EndIf}
 FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
-!insertmacro MUI_UNPAGE_CONFIRM
-!insertmacro MUI_UNPAGE_INSTFILES
 
 ; Languages
 {{#each languages}}
@@ -468,10 +554,14 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  StrCpy $R0 25
+  Call StepToPercent
+
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
   IntOp $InstallFileCount $InstallFileCount + 1
-  Call UpdateInstallPercent
+  StrCpy $R0 80
+  Call StepToPercent
 
   ; Copy resources
   {{#each resources_dirs}}
@@ -505,8 +595,13 @@ Section Install
     WriteRegStr SHCTX "Software\Classes\\{{protocol}}\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
   {{/each}}
 
+  ; Clean up legacy uninstaller name if present
+  ${If} ${FileExists} "$INSTDIR\uninstall.exe"
+    Delete "$INSTDIR\uninstall.exe"
+  ${EndIf}
+
   ; Create uninstaller
-  WriteUninstaller "$INSTDIR\uninstall.exe"
+  WriteUninstaller "$INSTDIR\卸载程序.exe"
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR
@@ -527,11 +622,11 @@ Section Install
   WriteRegStr SHCTX "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr SHCTX "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"
   WriteRegStr SHCTX "${UNINSTKEY}" "InstallLocation" "$\"$INSTDIR$\""
-  WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+  WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\"$INSTDIR\卸载程序.exe$\""
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoModify" "1"
   WriteRegDWORD SHCTX "${UNINSTKEY}" "NoRepair" "1"
 
-  ${GetSize} "$INSTDIR" "/M=uninstall.exe /S=0K /G=0" $0 $1 $2
+  ${GetSize} "$INSTDIR" "/M=卸载程序.exe /S=0K /G=0" $0 $1 $2
   IntOp $0 $0 + ${ESTIMATEDSIZE}
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD SHCTX "${UNINSTKEY}" "EstimatedSize" "$0"
@@ -552,6 +647,9 @@ Section Install
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
+  StrCpy $R0 95
+  Call StepToPercent
+
   SetAutoClose true
 SectionEnd
 
@@ -559,12 +657,8 @@ Function .onInstSuccess
   ${If} $TimerId != 0
     System::Call 'user32::KillTimer(p $HWNDPARENT, i $TimerId)'
   ${EndIf}
-  ${If} $CustomProgressBarHWnd != 0
-    SendMessage $CustomProgressBarHWnd 0x0402 100 0
-  ${EndIf}
-  ${If} $PercentLabelHWnd != 0
-    SendMessage $PercentLabelHWnd 0x000C 0 "STR:安装完成 100%"
-  ${EndIf}
+  StrCpy $R0 99
+  Call StepToPercent
   Sleep 600
 
   ; Automatically launch app upon completion
@@ -598,11 +692,18 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  StrCpy $R0 25
+  Call un.StepToPercent
+
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\quantum-physics-lab.exe"
 
   {{#each resources}}
     Delete "$INSTDIR\\{{this.[1]}}"
   {{/each}}
+
+  StrCpy $R0 60
+  Call un.StepToPercent
 
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
@@ -621,6 +722,7 @@ Section Uninstall
     ${EndIf}
   {{/each}}
 
+  Delete "$INSTDIR\卸载程序.exe"
   Delete "$INSTDIR\uninstall.exe"
 
   {{#each resources_ancestors}}
@@ -667,8 +769,7 @@ Section Uninstall
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   ${EndIf}
 
-  ${If} $DeleteAppDataCheckboxState = 1
-  ${AndIf} $UpdateMode <> 1
+  ${If} $UpdateMode <> 1
     DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
     DeleteRegKey /ifempty SHCTX "${MANUKEY}"
     DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
@@ -684,11 +785,17 @@ Section Uninstall
     !insertmacro NSIS_HOOK_POSTUNINSTALL
   !endif
 
-  ${If} $PassiveMode = 1
-  ${OrIf} $UpdateMode = 1
-    SetAutoClose true
-  ${EndIf}
+  StrCpy $R0 95
+  Call un.StepToPercent
+
+  SetAutoClose true
 SectionEnd
+
+Function un.onUninstSuccess
+  StrCpy $R0 99
+  Call un.StepToPercent
+  Sleep 600
+FunctionEnd
 
 Function RestorePreviousInstallLocation
   ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    quantum_physics_lab_lib::run()
+    dawu_lib::run()
 }
