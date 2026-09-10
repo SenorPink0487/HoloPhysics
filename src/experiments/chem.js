@@ -292,9 +292,9 @@ export function createHandlers(ctx) {
     if (!raw) throw new Error('请输入内容');
 
     const [{ parseAddExpression, expandMixtureComponents }, { resolveWithDeepSeek }, reactionMod] = await Promise.all([
-      import('../../../chem/pubchem.js'),
-      import('../../../chem/deepseek.js'),
-      import('../../../chem/reaction.js'),
+      import('../chem/pubchem.js'),
+      import('../chem/deepseek.js'),
+      import('../chem/reaction.js'),
     ]);
 
     const parts = parseAddExpression(raw);
@@ -379,7 +379,7 @@ export function createHandlers(ctx) {
     if (reactants.length < 2) return;
 
     try {
-      const { resolveReaction } = await import('../../../chem/reaction.js');
+      const { resolveReaction } = await import('../chem/reaction.js');
       const reaction = await resolveReaction(
         reactants.map((item) => ({ name: item.name_zh || item.formula || item.id })),
         state.data.searchCondition || '',
@@ -933,7 +933,7 @@ async function fetchSdfForComp(comp) {
   if (_sdfCache.has(key)) return _sdfCache.get(key);
 
   try {
-    const { lookupMolecule, loadComponentStructure } = await import('../../../chem/pubchem.js');
+    const { lookupMolecule, loadComponentStructure } = await import('../chem/pubchem.js');
     let sdf = '';
 
     try {
