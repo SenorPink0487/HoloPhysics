@@ -27,7 +27,7 @@ export function formatExperimentData(stationId, expId, data) {
   }
   if (expId === 'faraday_induction') {
     const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n铜棒 x = ${fmt(data.x)} m · 楞次方向: ${data.currentSense || '无'}\n动生 ε_i = ${data.lastMotion ? fmt(data.lastMotion.emf, 4) : '—'} V · 感生 ε_i = ${data.lastInduction ? fmt(data.lastInduction.emf, 4) : '—'} V\n记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
+    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n铜棒 x = ${fmt(data.x)} m · 楞次方向: ${data.currentSense || '无'}\n动生 ℰᵢ = ${data.lastMotion ? fmt(data.lastMotion.emf, 4) : '—'} V · 感生 ℰᵢ = ${data.lastInduction ? fmt(data.lastInduction.emf, 4) : '—'} V\n记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
   }
   if (expId === 'induced_electric_field') {
     const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
