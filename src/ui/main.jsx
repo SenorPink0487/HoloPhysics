@@ -1,3 +1,5 @@
+import { formatPhysicsHtml } from '../physicsFormula.js';
+
 let bridge = null;
 let state = {
   ar: { active: false, phase: 'off', status: 'AR mode off · H' },
@@ -88,7 +90,7 @@ export function updateHud() {}
 
 export function updateToast(message) {
   const node = ensureNode('toast');
-  node.textContent = message || '';
+  node.innerHTML = message ? formatPhysicsHtml(message) : '';
   node.classList.toggle('show', !!message);
 }
 

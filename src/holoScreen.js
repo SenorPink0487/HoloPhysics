@@ -478,7 +478,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
   const stats = [
     ['\\Phi_B', `${fmt(d.flux)} Wb`],
-    ['\\varepsilon_i', `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V`],
+    ['\\mathcal{E}_i', `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V`],
   ];
   stats.forEach(([label, value], i) => {
     const colW = w / stats.length;
@@ -523,14 +523,14 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
       title: '动生 · x 变化',
       data: motion,
       lines: motion
-        ? [`x: ${fmt(motion.x0)} \\rightarrow ${fmt(motion.x1)} \\mathrm{m}`, `\\Delta x = ${fmt(motion.dx)} \\mathrm{m} \\quad \\Delta t = ${fmt(motion.dt, 3)} \\mathrm{s}`, `\\varepsilon_i = ${fmt(motion.emf, 4)} \\mathrm{V}`, motion.senseLabel]
+        ? [`x: ${fmt(motion.x0)} \\rightarrow ${fmt(motion.x1)} \\mathrm{m}`, `\\Delta x = ${fmt(motion.dx)} \\mathrm{m} \\quad \\Delta t = ${fmt(motion.dt, 3)} \\mathrm{s}`, `\\mathcal{E}_i = ${fmt(motion.emf, 4)} \\mathrm{V}`, motion.senseLabel]
         : ['设目标 x 后播放', '或手拖铜棒'],
     },
     {
       title: '感生 · B 变化',
       data: induction,
       lines: induction
-        ? [`B: ${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}`, `\\Delta B = ${fmt(induction.dB, 3)} \\quad \\Delta t = ${fmt(induction.dt, 3)} \\mathrm{s}`, `\\varepsilon_i = ${fmt(induction.emf, 4)} \\mathrm{V}`, induction.senseLabel]
+        ? [`B: ${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}`, `\\Delta B = ${fmt(induction.dB, 3)} \\quad \\Delta t = ${fmt(induction.dt, 3)} \\mathrm{s}`, `\\mathcal{E}_i = ${fmt(induction.emf, 4)} \\mathrm{V}`, induction.senseLabel]
         : ['设目标 B 后播放', '或点「反向变化」'],
     },
   ];

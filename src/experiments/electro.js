@@ -47,11 +47,11 @@ export const station = {
       id: 'faraday_induction',
       name: '法拉第电磁感应',
       goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
-      theory: '\\Phi_B = BS, S = (x - x_0)L; \\varepsilon_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
+      theory: '\\Phi_B = BS, S = (x - x_0)L; \\mathcal{E}_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
       steps: [
         { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生」，设目标位置与时长，点「自动演示」；也可手拖铜棒。' },
         { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生」，设目标磁场与时长，点「自动演示」；或点「反向变化」快速演示。' },
-        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\varepsilon_i = BL\\Delta x/\\Delta t 与 \\varepsilon_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
+        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\mathcal{E}_i = BL\\Delta x/\\Delta t 与 \\mathcal{E}_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
       ],
     },
     {
@@ -1612,7 +1612,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.lingerSense = 'none';
     if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-    toast(`动生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+    toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 
@@ -1719,7 +1719,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'motion', ...data.lastMotion });
       if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-      toast(`动生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+      toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     } else {
       const dB = data.B - pending.from;
       data.lastInduction = {
@@ -1737,7 +1737,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'induction', ...data.lastInduction });
       if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-      toast(`感生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+      toast(`感生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     }
     data.records = data.records.slice(-12);
     data.pendingAnim = null;
@@ -1849,7 +1849,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.liveEmf = 0;
     if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-    toast(`磁场滑块测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+    toast(`磁场滑块测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 

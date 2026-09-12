@@ -26,7 +26,7 @@ export function chargeUiToCoulomb(qUi) {
 export const FONT_STACKS = {
   /** UI 文本、按钮、菜单、提示与动态读数 */
   ui: '"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
-  /** 物理数学斜体变量（B, x, E, r, t, ε_i） */
+  /** 物理数学斜体变量（B, x, E, r, t, ℰ_i） */
   mathVar: '"Times New Roman", "Cambria Math", "STIX Two Math", serif',
   /** 物理正体单位与运算符（V, T, Wb, s, d） */
   mathText: '"Times New Roman", "Cambria Math", serif',
@@ -80,6 +80,61 @@ export function formatPhysicsNumber(value, opts = {}) {
   if (abs >= 100) return `${v.toFixed(Math.max(0, digits - 1))}${unit}`;
   if (abs >= 10) return `${v.toFixed(digits)}${unit}`;
   return `${v.toFixed(digits + 1)}${unit}`;
+}
+
+/**
+ * 将物理提示文本或公式 markup 转换为标准 UI / Toast HTML 渲染结构。
+ * 规范处理：
+ * 1. 感应电动势采用人教版/大学物理标准花体 E 符号 ℰ（如 \mathcal{E}_i, ℰ_i, ℰᵢ, 规范纠正 ε_i 为 ℰ_i）；
+ * 2. 常见物理量角标（如 ℰ_i、q_0、Φ_B、B_1、r^2）转换为标准 <sub>/<sup> 标签；
+ * 3. 常见 LaTeX 符号（如 \Delta → Δ, \Phi → Φ, \cdot → ·, \times → ×, \mathrm{...}）转为正体物理符号；
+ * 4. 防范 XSS（转义非公式 HTML 字符）。
+ * @param {string} message
+ * @returns {string}
+ */
+export function formatPhysicsHtml(message) {
+  if (!message) return '';
+  // 1. HTML 转义，防范 XSS
+  let html = String(message)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 2. 规范化感应电动势（EMF）符号：统一为人教版/大学物理标准花体 ℰ (\mathcal{E})
+  // 匹配 \mathcal{E}_{i}、\mathcal{E}_i、ℰ_i、ℰᵢ，并纠正错误的 \varepsilon_i、ε_i
+  html = html.replace(
+    /(\\mathcal\{E\}|ℰ|\\varepsilon|ε)(?:_\{([a-zA-Z0-9]+)\}|_([a-zA-Z0-9]+)|([ᵢ₀-₉]))/g,
+    (_, _sym, sub1, sub2, sub3) => {
+      const sub = sub1 || sub2 || (sub3 === 'ᵢ' ? 'i' : sub3);
+      return `<span class="math-calligraphic">ℰ</span><sub class="math-sub">${sub}</sub>`;
+    }
+  );
+
+  // 独立花体 \mathcal{E}（无角标）
+  html = html.replace(/\\mathcal\{E\}/g, '<span class="math-calligraphic">ℰ</span>');
+
+  // 3. 常见 LaTeX 物理符号转义
+  html = html.replace(/\\Delta/g, 'Δ');
+  html = html.replace(/\\Phi/g, 'Φ');
+  html = html.replace(/\\cdot/g, '·');
+  html = html.replace(/\\times/g, '×');
+  html = html.replace(/\\mu\s*(?:\\text\{C\}|C|m)?/g, (m) => m.includes('C') ? 'μC' : (m.includes('m') ? 'μm' : 'μ'));
+  html = html.replace(/\\mathrm\{([^}]+)\}/g, '$1');
+  html = html.replace(/\\text\{([^}]+)\}/g, '$1');
+
+  // 4. 通用变量下标（如 q_0、Φ_B、B_1、X_0 等）
+  html = html.replace(
+    /([A-Za-zΑ-Ωα-ωΦφθΘεΔδπμνλρστω])_\{?([0-9a-zA-Z]+)\}?/g,
+    '<span class="math-var">$1</span><sub class="math-sub">$2</sub>'
+  );
+
+  // 5. 通用上标（如 r^2、r^{2}、m^2、m^3 等）
+  html = html.replace(
+    /([A-Za-zΑ-Ωα-ω0-9])\^\{?([0-9+\-−]+)\}?/g,
+    '$1<sup class="math-sup">$2</sup>'
+  );
+
+  return html;
 }
 
 function findMatchingBrace(str, openIndex) {
