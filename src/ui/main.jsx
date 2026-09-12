@@ -10,6 +10,8 @@ function ensureNode(id, tag = 'div', parent = document.body) {
     node = document.createElement(tag);
     node.id = id;
     parent.appendChild(node);
+  } else if (node.closest?.('#legacy-ui')) {
+    parent.appendChild(node);
   }
   return node;
 }

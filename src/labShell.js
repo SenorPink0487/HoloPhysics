@@ -3191,13 +3191,30 @@ const toastEl = document.getElementById('toast');
 const crosshair = document.getElementById('crosshair');
 let toastTimer = 0;
 
+function getActiveToastElement() {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  } else if (el.closest?.('#legacy-ui')) {
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
 function showToast(msg) {
-  toastEl.textContent = msg;
-  toastEl.classList.add('show');
+  const el = getActiveToastElement();
+  if (el) {
+    el.textContent = msg;
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('show', 'pulse');
+  }
   clearTimeout(toastTimer);
   updateToast(msg);
   toastTimer = setTimeout(() => {
-    toastEl.classList.remove('show');
+    if (el) el.classList.remove('show', 'pulse');
     updateToast(null);
   }, 2400);
 }

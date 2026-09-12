@@ -378,4 +378,92 @@ test('Hall effect solenoid and Helmholtz theoretical curves match simulated meas
   assert.ok(res);
 });
 
+test('Hall effect table displays X (m) and 3 decimals for Helmholtz, X (cm) and 1 decimal for Solenoid', () => {
+  const station = { id: 'electro', name: '电磁学实验台' };
+  const experiment = { id: 'hall_effect', name: '霍尔效应与磁场测量' };
+
+  const createMockCtx = () => {
+    const texts = [];
+    return {
+      texts,
+      clearRect() {}, fillRect() {}, strokeRect() {},
+      fillText(t) { texts.push(String(t)); },
+      save() {}, restore() {}, beginPath() {}, closePath() {}, moveTo() {}, lineTo() {},
+      arc() {}, arcTo() {}, fill() {}, stroke() {}, addColorStop() {},
+      createLinearGradient() { return { addColorStop() {} }; },
+      measureText() { return { width: 50 }; },
+    };
+  };
+
+  // 1. Helmholtz mode table
+  const helmholtzData = {
+    target: 'helmholtz',
+    stepIndex: 2,
+    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    Im: 0.5,
+    Is: 0.005,
+    probePos: -0.010,
+    showCurve: false,
+    records: [
+      { target: 'helmholtz', pos: -0.010, vh: 0.00155, b: 0.0010 },
+      { target: 'helmholtz', pos: -0.000, vh: 0.00198, b: 0.0013 },
+      { target: 'helmholtz', pos: 0.050, vh: 0.00239, b: 0.0016 },
+    ],
+  };
+
+  const layoutHelm = getHoloScreenLayoutSize({
+    active: true,
+    hud: { station, experiment, running: true, data: helmholtzData },
+    surface: 'display',
+  });
+  const mockHelm = createMockCtx();
+  drawHoloScreen(mockHelm, layoutHelm.width, layoutHelm.height, {
+    active: true,
+    hud: { station, experiment, running: true, data: helmholtzData },
+    surface: 'display',
+    fullTitle: '电磁学实验台',
+    enTitle: 'ELECTROMAGNETISM',
+  });
+
+  assert.ok(mockHelm.texts.includes('X (m)'), 'Helmholtz table must have column header X (m)');
+  assert.ok(!mockHelm.texts.includes('X (cm)'), 'Helmholtz table must not have column header X (cm)');
+  assert.ok(mockHelm.texts.includes('-0.010'), 'Helmholtz table must format -0.010 with 3 decimal places');
+  assert.ok(mockHelm.texts.includes('0.000'), 'Near-zero pos must format as 0.000 without negative sign');
+  assert.ok(!mockHelm.texts.includes('-0.0'), 'Table must not display -0.0 for Helmholtz data');
+  assert.ok(mockHelm.texts.includes('0.050'), '0.050 m must format with 3 decimal places');
+
+  // 2. Solenoid mode table
+  const solenoidData = {
+    target: 'solenoid',
+    stepIndex: 2,
+    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    Im: 0.5,
+    Is: 0.005,
+    probePos: 16.0,
+    showCurve: false,
+    records: [
+      { target: 'solenoid', pos: 16.0, vh: 0.00229, b: 0.0015 },
+    ],
+  };
+
+  const layoutSol = getHoloScreenLayoutSize({
+    active: true,
+    hud: { station, experiment, running: true, data: solenoidData },
+    surface: 'display',
+  });
+  const mockSol = createMockCtx();
+  drawHoloScreen(mockSol, layoutSol.width, layoutSol.height, {
+    active: true,
+    hud: { station, experiment, running: true, data: solenoidData },
+    surface: 'display',
+    fullTitle: '电磁学实验台',
+    enTitle: 'ELECTROMAGNETISM',
+  });
+
+  assert.ok(mockSol.texts.includes('X (cm)'), 'Solenoid table must have column header X (cm)');
+  assert.ok(!mockSol.texts.includes('X (m)'), 'Solenoid table must not have column header X (m)');
+  assert.ok(mockSol.texts.includes('16.0'), 'Solenoid table must format with 1 decimal place');
+});
+
+
 

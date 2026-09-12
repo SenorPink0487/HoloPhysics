@@ -13,7 +13,7 @@ import {
   PARTICLE_STRIDE_POS_VEL,
   preferredWorkerSlot,
 } from '../runtime/threading/simBackend.js';
-import * as XLSX from 'xlsx';
+import { openHtmlReport } from '../tauri.js';
 
 export { K_COULOMB, EPSILON_0, chargeUiToCoulomb };
 
@@ -807,7 +807,7 @@ export function createHandlers(ctx) {
         target: 'solenoid',
         Im: 0.5,
         Is: 0.005,
-        probePos: 0,
+        probePos: 16,
         rightCoilPos: 0.05,
         solenoidLength: 0.30,
         turns: 2340,
@@ -2003,11 +2003,12 @@ export function createHandlers(ctx) {
 
   function calculateHallField(data, pos = data.probePos) {
     if (!data.wiring?.energized || data.wiring.target !== data.target) return 0;
-    const rawPos = Number(pos || 0);
-    const x = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
+    const targetSolenoid = data.target === 'solenoid';
+    const rawPos = Number(pos ?? (targetSolenoid ? 16 : 0));
     const Im = Number(data.Im || 0);
     let bTesla;
     if (data.target === 'helmholtz') {
+      const x = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
       const fixedX = 0;
       const rawMovingX = Number(data.rightCoilPos ?? 0.05);
       const movingX = Math.abs(rawMovingX) > 0.5 ? rawMovingX / 100 : rawMovingX;
@@ -2028,6 +2029,8 @@ export function createHandlers(ctx) {
       const halfLength = length / 2;
       const turnsPerMetre = Number(data.turns || 2340) / length;
       const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
+      // 探杆刻度 X (cm)：从 1.0 cm 测到 31.0 cm，中心为 16.0 cm
+      const x = (16.0 - rawPos) / 100;
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
         * (endCos(x + halfLength) - endCos(x - halfLength));
     }
@@ -2713,7 +2716,19 @@ export function createHandlers(ctx) {
     if (state.expId !== 'hall_effect') return false;
     const data = state.data;
     if (action === 'hall-target') {
-      data.target = payload.target === 'solenoid' ? 'solenoid' : 'helmholtz';
+      const nextTarget = payload.target === 'solenoid' ? 'solenoid' : 'helmholtz';
+      if (data.target !== nextTarget) {
+        data.target = nextTarget;
+        if (data.target === 'helmholtz') {
+          if (data.probePos == null || data.probePos > 0.5 || data.probePos < -0.5) {
+            data.probePos = 0;
+          }
+        } else {
+          if (data.probePos == null || data.probePos < 1 || data.probePos > 31) {
+            data.probePos = 16;
+          }
+        }
+      }
       if (state.stepIndex === 1) advanceStep();
       syncHall(data);
       toast(data.target === 'helmholtz' ? '测量对象：亥姆霍兹线圈' : '测量对象：长螺线管');
@@ -2735,12 +2750,18 @@ export function createHandlers(ctx) {
         if (key === 'Im') data.Im = Math.round(clamp(value, 0, 1) * 1e4) / 1e4;
         if (key === 'Is') data.Is = Math.round(clamp(value > 0.05 ? value / 1000 : value, 0, 0.010) * 1e6) / 1e6;
         if (key === 'probePos') {
-          const raw = clamp(Math.abs(value) > 0.5 ? value / 100 : value, -0.25, 0.25);
-          data.probePos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
+          if (data.target === 'solenoid') {
+            const raw = clamp(Number(value), 1, 31);
+            data.probePos = Math.round(raw / 0.5) * 0.5;
+          } else {
+            const raw = clamp(Math.abs(value) > 0.5 ? value / 100 : value, -0.25, 0.25);
+            data.probePos = Math.round(Math.round(raw / 0.01) * 0.01 * 1e4) / 1e4;
+            if (Math.abs(data.probePos) < 1e-6) data.probePos = 0;
+          }
         }
         if (key === 'rightCoilPos') {
           const raw = clamp(Math.abs(value) > 0.5 ? value / 100 : value, 0.02, 0.155);
-          data.rightCoilPos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
+          data.rightCoilPos = Math.round(Math.round(raw / 0.01) * 0.01 * 1e4) / 1e4;
         }
         if (key === 'turns') data.turns = Math.round(clamp(value, 10, 5000) / 10) * 10;
       } else {
@@ -2751,14 +2772,21 @@ export function createHandlers(ctx) {
           data.Is = Math.round(clamp(data.Is + dIs, 0, 0.010) * 1e6) / 1e6;
         }
         if (key === 'probePos') {
-          const dPos = Math.abs(delta) > 0.5 ? delta / 100 : delta;
-          const next = clamp(data.probePos + dPos, -0.25, 0.25);
-          data.probePos = Math.round(next * 1e4) / 1e4;
+          if (data.target === 'solenoid') {
+            const dPos = Number(delta || 0);
+            const next = clamp(Number(data.probePos ?? 16) + dPos, 1, 31);
+            data.probePos = Math.round(next / 0.5) * 0.5;
+          } else {
+            const dPos = Math.abs(delta) > 0.5 ? delta / 100 : delta;
+            const next = clamp(Number(data.probePos ?? 0) + dPos, -0.25, 0.25);
+            data.probePos = Math.round(Math.round(next / 0.005) * 0.005 * 1e4) / 1e4;
+            if (Math.abs(data.probePos) < 1e-6) data.probePos = 0;
+          }
         }
         if (key === 'rightCoilPos') {
           const dCoil = Math.abs(delta) > 0.5 ? delta / 100 : delta;
           const next = clamp(data.rightCoilPos + dCoil, 0.02, 0.155);
-          data.rightCoilPos = Math.round(next * 1e4) / 1e4;
+          data.rightCoilPos = Math.round(Math.round(next / 0.005) * 0.005 * 1e4) / 1e4;
         }
         if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 5000) / 10) * 10;
       }
@@ -2776,8 +2804,10 @@ export function createHandlers(ctx) {
       data.tableScrollAuto = true;
       data.tableScrollPx = 0;
       const bTesla = calculateHallField(data);
-      const rawPos = Number(data.probePos || 0);
-      const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
+      const isHelmholtz = data.target === 'helmholtz';
+      const rawPos = Number(data.probePos ?? (isHelmholtz ? 0 : 16));
+      const posVal = isHelmholtz ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+      const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
       const rawIs = Number(data.Is || 0);
       const isA = rawIs > 0.05 ? rawIs / 1000 : rawIs;
       const rawCoil = Number(data.rightCoilPos ?? 0.05);
@@ -2787,7 +2817,7 @@ export function createHandlers(ctx) {
       data.records.push({
         target: data.target,
         coilMode: data.wiring?.coilMode || 'both',
-        pos: posM,
+        pos: cleanPos,
         vh: data.vh,
         b: bTesla,
         Im: data.Im,
@@ -2801,8 +2831,19 @@ export function createHandlers(ctx) {
       });
       if (data.records.length > 60) data.records.shift();
       if (data.records.length >= 3 && state.stepIndex < 4) setStep('compare');
+      data.lastRecordedTime = Date.now();
+      data.lastRecordedIndex = data.records.length - 1;
       syncHall(data);
-      toast(`已记录 X=${posM.toFixed(3)} m，B=${bTesla.toFixed(4)} T`);
+
+      const count = data.records.length;
+      const posText = isHelmholtz ? `${cleanPos.toFixed(3)} m` : `${cleanPos.toFixed(1)} cm`;
+      const rawVh = Number(data.vh || 0);
+      const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+      const vhText = `${(vhV * 1000).toFixed(2)} mV`;
+      const toastMsg = count === 3
+        ? `✓ 已记录第 3 组数据 (X=${posText}, VH=${vhText}) · 可拟合曲线`
+        : `✓ 已记录第 ${count} 组数据 (X=${posText}, VH=${vhText})`;
+      toast(toastMsg);
       return true;
     }
     if (action === 'hall-clear') {
@@ -2886,8 +2927,22 @@ export function createHandlers(ctx) {
         toast('暂无记录数据，请先点击「记录当前读数」');
         return true;
       }
-      exportHallDataReport(data);
-      toast('已打开打印与导出数据页面');
+      try {
+        const res = exportHallDataReport(data);
+        if (res && typeof res.then === 'function') {
+          res
+            .then(() => toast('已打开打印与导出数据页面'))
+            .catch((error) => {
+              console.error('导出实验数据失败:', error);
+              toast('打开导出数据页面失败，请重试');
+            });
+        } else {
+          toast('已打开打印与导出数据页面');
+        }
+      } catch (error) {
+        console.error('导出实验数据失败:', error);
+        toast('打开导出数据页面失败，请重试');
+      }
       return true;
     }
     if (action === 'hall-complete') {
@@ -3425,14 +3480,29 @@ export function createHandlers(ctx) {
         if (hitX != null) {
           data.hallDragMoved = true;
           if (kind === 'probePos') {
-            const hitSimPos = hitX * 0.25;
-            if (!Number.isFinite(data.hallDragOffset)) {
-              const rawProbe = Number(data.probePos || 0);
-              const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
-              data.hallDragOffset = probeM - hitSimPos;
+            const targetSolenoid = data?.target === 'solenoid';
+            if (targetSolenoid) {
+              const hitSimPos = -hitX * 25;
+              if (!Number.isFinite(data.hallDragOffset)) {
+                const rawProbe = Number(data.probePos ?? 16);
+                data.hallDragOffset = rawProbe - hitSimPos;
+              }
+              const raw = clamp(hitSimPos + (data.hallDragOffset || 0), 1, 31);
+              data.probePos = Math.round(raw / 0.5) * 0.5;
+            } else {
+              const rawCoil = Number(data.rightCoilPos ?? 0.05);
+              const coilM = Math.max(0.01, Math.abs(rawCoil) > 0.5 ? rawCoil / 100 : rawCoil);
+              const xRightCoil = -0.06 + clamp((coilM - 0.02) / 0.135, 0, 1) * 0.34;
+              const scale = (xRightCoil + 0.14) / coilM;
+              const hitSimPos = (hitX - (-0.12)) / Math.max(1e-4, scale);
+              if (!Number.isFinite(data.hallDragOffset)) {
+                const rawProbe = Number(data.probePos ?? 0);
+                const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
+                data.hallDragOffset = probeM - hitSimPos;
+              }
+              const raw = clamp(hitSimPos + (data.hallDragOffset || 0), -0.25, 0.25);
+              data.probePos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
             }
-            const raw = clamp(hitSimPos + (data.hallDragOffset || 0), -0.25, 0.25);
-            data.probePos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
           } else if (kind === 'rightCoilPos') {
             const hitCoilPos = ((hitX + 0.06) / 0.34) * 0.135 + 0.02;
             if (!Number.isFinite(data.hallDragOffset)) {
@@ -3453,8 +3523,14 @@ export function createHandlers(ctx) {
       const start = Number(data.hallDragStartValue || 0);
       if (Math.abs(deltaPx) > 2) data.hallDragMoved = true;
       if (kind === 'probePos') {
-        const raw = clamp(start + deltaPx * 0.0005, -0.25, 0.25);
-        data.probePos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
+        const targetSolenoid = data?.target === 'solenoid';
+        if (targetSolenoid) {
+          const raw = clamp(start - deltaPx * 0.05, 1, 31);
+          data.probePos = Math.round(raw / 0.5) * 0.5;
+        } else {
+          const raw = clamp(start + deltaPx * 0.0005, -0.25, 0.25);
+          data.probePos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
+        }
       }
       if (kind === 'rightCoilPos') {
         const raw = clamp(start + deltaPx * 0.0002, 0.02, 0.155);
@@ -3475,14 +3551,16 @@ export function createHandlers(ctx) {
       data.hallDragKind = null;
       data.hallDragOffset = null;
       syncHall(data);
-      const rawProbe = Number(data.probePos || 0);
-      const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
+      const isHelmholtz = data.target === 'helmholtz';
+      const rawProbe = Number(data.probePos ?? (isHelmholtz ? 0 : 16));
+      const probeVal = isHelmholtz ? (Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe) : rawProbe;
+      const cleanProbe = Math.abs(probeVal) < 1e-6 ? 0 : probeVal;
       const rawCoil = Number(data.rightCoilPos ?? 0.05);
       const coilM = Math.abs(rawCoil) > 0.5 ? rawCoil / 100 : rawCoil;
       const rawIs = Number(data.Is || 0);
       const isA = rawIs > 0.05 ? rawIs / 1000 : rawIs;
       const labels = {
-        probePos: `探头位置 X = ${probeM.toFixed(3)} m`,
+        probePos: isHelmholtz ? `探头 X = ${cleanProbe.toFixed(3)} m` : `探杆刻度 X = ${cleanProbe.toFixed(1)} cm`,
         rightCoilPos: `右线圈位置 = ${coilM.toFixed(3)} m`,
         turns: `螺线管匝数 N = ${data.turns}`,
         Im: `励磁电流 Im = ${data.Im.toFixed(3)} A`,
@@ -3619,10 +3697,21 @@ export function createHandlers(ctx) {
         const hitX = getHallRayHitX(context.raycaster, data);
         if (hitX != null) {
           if (role === 'hall_probe') {
-            const rawProbe = Number(data.probePos || 0);
-            const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
-            const hitSimPos = hitX * 0.25;
-            data.hallDragOffset = probeM - hitSimPos;
+            const targetSolenoid = data?.target === 'solenoid';
+            if (targetSolenoid) {
+              const rawProbe = Number(data.probePos ?? 16);
+              const hitSimPos = -hitX * 25;
+              data.hallDragOffset = rawProbe - hitSimPos;
+            } else {
+              const rawCoil = Number(data.rightCoilPos ?? 0.05);
+              const coilM = Math.max(0.01, Math.abs(rawCoil) > 0.5 ? rawCoil / 100 : rawCoil);
+              const xRightCoil = -0.06 + clamp((coilM - 0.02) / 0.135, 0, 1) * 0.34;
+              const scale = (xRightCoil + 0.14) / coilM;
+              const hitSimPos = (hitX - (-0.12)) / Math.max(1e-4, scale);
+              const rawProbe = Number(data.probePos ?? 0);
+              const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
+              data.hallDragOffset = probeM - hitSimPos;
+            }
           } else if (role === 'hall_helmholtz') {
             const rawCoil = Number(data.rightCoilPos ?? 0.05);
             const coilM = Math.abs(rawCoil) > 0.5 ? rawCoil / 100 : rawCoil;
@@ -3984,10 +4073,10 @@ export function exportHallDataReport(data) {
 
   function getTheoreticalB(r, xPos) {
     const rawX = Number(xPos || 0);
-    const xM = Math.abs(rawX) > 0.5 ? rawX / 100 : rawX;
     const Im = Number(r.Im || 0);
     let bTesla = 0;
     if (r.target === 'helmholtz') {
+      const xM = Math.abs(rawX) > 0.5 ? rawX / 100 : rawX;
       const fixedX = 0;
       const rawMovingX = Number(r.rightCoilPos ?? 0.05);
       const movingX = Math.abs(rawMovingX) > 0.5 ? rawMovingX / 100 : rawMovingX;
@@ -4009,21 +4098,19 @@ export function exportHallDataReport(data) {
       const halfLength = length / 2;
       const turnsPerMetre = Number(r.turns || 2340) / length;
       const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
+      const xM = (16.0 - rawX) / 100;
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
         * (endCos(xM + halfLength) - endCos(xM - halfLength));
     }
     return bTesla * Number(r.direction || 1);
   }
 
-  const recordedX = records.map((r) => {
-    const raw = Number(r.pos || 0);
-    return Math.abs(raw) > 0.5 ? raw / 100 : raw;
-  });
-  const xMin = Math.min(-0.15, ...recordedX);
-  const xMax = Math.max(0.15, ...recordedX);
+  const recordedX = records.map((r) => Number(r.pos || 0));
+  const isHelmholtz = lastRec.target === 'helmholtz';
+  const xMin = isHelmholtz ? -0.05 : 1;
+  const xMax = isHelmholtz ? 0.15 : 31;
   const samples = 160;
 
-  const isHelmholtz = lastRec.target === 'helmholtz';
   const modeLabels = {
     fixed: '固定线圈 L1',
     moving: '移动线圈 L2',
@@ -4123,13 +4210,14 @@ export function exportHallDataReport(data) {
 
   const measuredPoints = records.map((r) => {
     const rawPos = Number(r.pos || 0);
-    const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
+    const posVal = isHelmholtz ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+    const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
     const rawB = Number(r.b || 0);
     const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
     const rawVh = Number(r.vh || 0);
     const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
     return {
-      x: posM,
+      x: cleanPos,
       b: bT,
       vh: vhV,
       coilMode: r.coilMode || 'both',
@@ -4168,7 +4256,7 @@ export function exportHallDataReport(data) {
     const t = i / 4;
     const gx = margin.left + plotW * t;
     const gy = margin.top + plotH * (1 - t);
-    const xVal = (xMin + (xMax - xMin) * t).toFixed(2);
+    const xVal = (xMin + (xMax - xMin) * t).toFixed(isHelmholtz ? 2 : 1);
     const bVal = (yMin + (yMax - yMin) * t).toFixed(4);
     gridLines += `<line x1="${gx}" y1="${margin.top}" x2="${gx}" y2="${margin.top + plotH}" stroke="#e2e8f0" stroke-dasharray="4,4" />
 <text x="${gx}" y="${margin.top + plotH + 20}" font-size="12" fill="#64748b" text-anchor="middle">${xVal}</text>`;
@@ -4182,26 +4270,29 @@ export function exportHallDataReport(data) {
   }).join('\n        ');
 
   const dotsHtml = measuredPoints.map((p, i) => {
-    const cx = mapX(p.x).toFixed(1);
-    const cy = mapY(p.b).toFixed(1);
+    const cx = Number(mapX(p.x).toFixed(1));
+    const cy = Number(mapY(p.b).toFixed(1));
+    const arm = 4;
     const dotColor = isHelmholtz ? (modeColors[p.coilMode] || '#0284c7') : '#0284c7';
     const modeName = isHelmholtz ? (modeLabels[p.coilMode] || '双线圈') : '螺线管';
-    return `<circle cx="${cx}" cy="${cy}" r="6" fill="${dotColor}" stroke="#ffffff" stroke-width="2">
-      <title>点 #${i + 1}: [${modeName}] X = ${p.x.toFixed(3)} m, B = ${p.b.toFixed(4)} T, Vh = ${(p.vh * 1000).toFixed(2)} mV</title>
-    </circle>`;
+    return `<g stroke="${dotColor}" stroke-width="1.3" stroke-linecap="butt">
+      <line x1="${(cx - arm).toFixed(1)}" y1="${cy}" x2="${(cx + arm).toFixed(1)}" y2="${cy}" />
+      <line x1="${cx}" y1="${(cy - arm).toFixed(1)}" x2="${cx}" y2="${(cy + arm).toFixed(1)}" />
+      <title>点 #${i + 1}: [${modeName}] X = ${p.x.toFixed(isHelmholtz ? 3 : 1)} ${isHelmholtz ? 'm' : 'cm'}, B = ${p.b.toFixed(4)} T, Vh = ${(p.vh * 1000).toFixed(2)} mV</title>
+    </g>`;
   }).join('\n        ');
 
   const legendItemsHtml = curvesToDraw.map((c) => (
     `<div class="legend-item"><span class="legend-line" style="background: ${c.color};"></span> ${c.label}</div>`
   )).concat([
-    `<div class="legend-item"><span class="legend-dot" style="background: #0284c7; box-shadow: 0 0 0 1px #0284c7;"></span> 实测点 (${records.length} 组)</div>`
+    `<div class="legend-item"><span class="legend-marker" style="color: #0284c7; font-weight: 600; font-size: 15px; line-height: 1;">+</span> 实测点 (${records.length} 组)</div>`
   ]).join('\n        ');
 
   const tableHeaderHtml = `
         <tr>
           <th>序号</th>
           ${isHelmholtz ? '<th>通电状态</th>' : ''}
-          <th>探头位置 X (m)</th>
+          <th>${isHelmholtz ? '探头位置 X (m)' : '探杆刻度 X (cm)'}</th>
           <th>霍尔电压 V<sub>H</sub> (mV)</th>
           <th>磁感应强度 B (T)</th>
         </tr>`;
@@ -4210,7 +4301,7 @@ export function exportHallDataReport(data) {
     <tr>
       <td>${i + 1}</td>
       ${isHelmholtz ? `<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:${p.coilMode === 'fixed' ? '#fef3c7;color:#b45309;' : p.coilMode === 'moving' ? '#d1fae5;color:#047857;' : '#e0f2fe;color:#0369a1;'}">${modeLabels[p.coilMode || 'both']}</span></td>` : ''}
-      <td>${p.x.toFixed(3)}</td>
+      <td>${p.x.toFixed(isHelmholtz ? 3 : 1)}</td>
       <td>${(p.vh * 1000).toFixed(2)}</td>
       <td>${p.b.toFixed(4)}</td>
     </tr>
@@ -4298,6 +4389,16 @@ export function exportHallDataReport(data) {
       width: 10px; height: 10px; background: #0284c7; border-radius: 50%;
       border: 2px solid #ffffff; box-shadow: 0 0 0 1px #0284c7;
     }
+    .legend-marker {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+    }
     .chart-box {
       display: flex;
       justify-content: center;
@@ -4334,11 +4435,11 @@ export function exportHallDataReport(data) {
         <div class="subtitle">B–X 磁场分布曲线与测量数据</div>
       </div>
       <div class="btn-group no-print">
-        <button class="btn btn-primary" type="button">🖨️ 打印 / PDF</button>
-        <button class="btn btn-excel" type="button">📊 导出 Excel</button>
-        <button class="btn btn-csv" type="button">📄 导出 CSV</button>
-        <button class="btn btn-json" type="button">📋 导出 JSON</button>
-        <button class="btn btn-secondary" type="button">关闭</button>
+        <button class="btn btn-primary" type="button" onclick="window.print()">🖨️ 打印 / PDF</button>
+        <button class="btn btn-excel" type="button" onclick="exportExcel()">📊 导出 Excel</button>
+        <button class="btn btn-csv" type="button" onclick="exportCSV()">📄 导出 CSV</button>
+        <button class="btn btn-json" type="button" onclick="exportJSON()">📋 导出 JSON</button>
+        <button class="btn btn-secondary" type="button" onclick="window.close()">关闭</button>
       </div>
     </div>
 
@@ -4376,7 +4477,7 @@ export function exportHallDataReport(data) {
         ${yMin < 0 && yMax > 0 ? `<line x1="${margin.left}" y1="${mapY(0)}" x2="${margin.left + plotW}" y2="${mapY(0)}" stroke="#94a3b8" stroke-width="1.5" />` : ''}
         <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotH}" stroke="#334155" stroke-width="2" />
         <line x1="${margin.left}" y1="${margin.top + plotH}" x2="${margin.left + plotW}" y2="${margin.top + plotH}" stroke="#334155" stroke-width="2" />
-        <text x="${margin.left + plotW / 2}" y="${svgH - 12}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle">X / m</text>
+        <text x="${margin.left + plotW / 2}" y="${svgH - 12}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle">${isHelmholtz ? 'X / m' : 'X / cm'}</text>
         <text x="20" y="${margin.top + plotH / 2}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle" transform="rotate(-90 20 ${margin.top + plotH / 2})">B / T</text>
 
         <!-- Theoretical Curves -->
@@ -4391,11 +4492,12 @@ export function exportHallDataReport(data) {
   <script>
     const rawRecords = ${JSON.stringify(records)};
     const kVal = ${JSON.stringify(kVal)};
+    const isHelmholtzMode = ${JSON.stringify(isHelmholtz)};
 
     function downloadFile(filename, content, mimeType) {
       const type = mimeType || 'application/octet-stream';
       try {
-        const blob = new Blob([content], { type: type });
+        const blob = content instanceof Blob ? content : new Blob([content], { type: type });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -4419,147 +4521,6 @@ export function exportHallDataReport(data) {
       }
     }
 
-    function exportExcel() {
-      const headers = ['序号', '探头位置 X (m)', '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
-      const rows = rawRecords.map((r, i) => {
-        const rawPos = Number(r.pos || 0);
-        const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
-        const rawVh = Number(r.vh || 0);
-        const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
-        const rawB = Number(r.b || 0);
-        const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
-        return [
-          i + 1,
-          posM.toFixed(3),
-          (vhV * 1000).toFixed(2),
-          bT.toFixed(4)
-        ];
-      });
-
-      let xmlRows = '<Row ss:StyleID="Header">\n' +
-        headers.map(h => '  <Cell><Data ss:Type="String">' + h + '</Data></Cell>').join('\n') +
-        '\n</Row>\n';
-
-      rows.forEach(row => {
-        xmlRows += '<Row ss:StyleID="Cell">\n' +
-          row.map(val => {
-            const isNum = !isNaN(val) && val !== '';
-            const type = isNum ? 'Number' : 'String';
-            return '  <Cell><Data ss:Type="' + type + '">' + val + '</Data></Cell>';
-          }).join('\n') +
-          '\n</Row>\n';
-      });
-
-      const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
-'<?mso-application progid="Excel.Sheet"?>\n' +
-'<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\n' +
-' xmlns:o="urn:schemas-microsoft-com:office:office"\n' +
-' xmlns:x="urn:schemas-microsoft-com:office:excel"\n' +
-' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n' +
-' <Styles>\n' +
-'  <Style ss:ID="Header">\n' +
-'   <Font ss:Bold="1" ss:Color="#0F172A"/>\n' +
-'   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>\n' +
-'   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\n' +
-'  </Style>\n' +
-'  <Style ss:ID="Cell">\n' +
-'   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\n' +
-'  </Style>\n' +
-' </Styles>\n' +
-' <Worksheet ss:Name="霍尔测磁实验数据">\n' +
-'  <Table>\n' +
-'   <Column ss:Width="60"/>\n' +
-'   <Column ss:Width="140"/>\n' +
-'   <Column ss:Width="140"/>\n' +
-'   <Column ss:Width="150"/>\n' +
-    xmlRows +
-'  </Table>\n' +
-' </Worksheet>\n' +
-'</Workbook>';
-
-      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.xls';
-      downloadFile(filename, xml, 'application/vnd.ms-excel');
-    }
-
-    function exportCSV() {
-      const headers = ['序号', '探头位置 X (m)', '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
-      const rows = rawRecords.map((r, i) => {
-        const rawPos = Number(r.pos || 0);
-        const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
-        const rawVh = Number(r.vh || 0);
-        const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
-        const rawB = Number(r.b || 0);
-        const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
-        return [
-          i + 1,
-          posM.toFixed(3),
-          (vhV * 1000).toFixed(2),
-          bT.toFixed(4)
-        ];
-      });
-      const csvContent = '\uFEFF' + [headers, ...rows].map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
-      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.csv';
-      downloadFile(filename, csvContent, 'text/csv;charset=utf-8;');
-    }
-
-    function exportJSON() {
-      const payload = {
-        experiment: "霍尔效应测磁实验",
-        instrument: "HCC-2 型霍尔效应测磁仪",
-        hallK: kVal,
-        exportedAt: new Date().toLocaleString('zh-CN'),
-        records: rawRecords
-      };
-      const jsonContent = JSON.stringify(payload, null, 2);
-      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.json';
-      downloadFile(filename, jsonContent, 'application/json;charset=utf-8;');
-    }
-  </script>
-</body>
-</html>`;
-
-  const reportRows = measuredPoints.map((p, i) => [
-    i + 1,
-    p.x.toFixed(3),
-    (p.vh * 1000).toFixed(2),
-    p.b.toFixed(4),
-  ]);
-  const reportHeaders = ['序号', '探头位置 X (m)', '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
-  const downloadReportFile = (filename, content, mimeType) => {
-    const reportDocument = win?.document || document;
-    const reportUrl = reportDocument.defaultView?.URL || URL;
-    const url = reportUrl.createObjectURL(new Blob([content], { type: mimeType }));
-    const anchor = reportDocument.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.style.display = 'none';
-    reportDocument.body.appendChild(anchor);
-    anchor.click();
-    setTimeout(() => {
-      anchor.remove();
-      reportUrl.revokeObjectURL(url);
-    }, 1000);
-  };
-  const exportReportData = (format) => {
-    const date = new Date().toISOString().slice(0, 10);
-    const stem = '霍尔效应测磁实验数据_' + date;
-    if (format === 'json') {
-      downloadReportFile(stem + '.json', JSON.stringify({
-        experiment: '霍尔效应测磁实验',
-        instrument: 'HCC-2 型霍尔效应测磁仪',
-        hallK: kVal,
-        exportedAt: new Date().toLocaleString('zh-CN'),
-        records,
-      }, null, 2), 'application/json;charset=utf-8');
-      return;
-    }
-    if (format === 'csv') {
-      const csv = '\uFEFF' + [reportHeaders, ...reportRows]
-        .map((row) => row.map((value) => '"' + String(value).replace(/"/g, '""') + '"').join(','))
-        .join('\r\n');
-      downloadReportFile(stem + '.csv', csv, 'text/csv;charset=utf-8');
-      return;
-    }
     const escapeXml = (value) => String(value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -4586,62 +4547,79 @@ export function exportHallDataReport(data) {
       }
       return (crc ^ 0xffffffff) >>> 0;
     };
-    const joinBytes = (parts) => {
-      const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+    const joinBytes = (arrays) => {
+      const total = arrays.reduce((acc, a) => acc + a.length, 0);
+      const out = new Uint8Array(total);
       let offset = 0;
-      for (const part of parts) {
-        result.set(part, offset);
-        offset += part.length;
+      for (const a of arrays) {
+        out.set(a, offset);
+        offset += a.length;
       }
-      return result;
+      return out;
     };
-    const makeXlsx = (dataRows) => {
-      const encoder = new TextEncoder();
-      const sheetRows = dataRows.map((row, rowIndex) => {
-        const cells = row.map((value, columnIndex) => {
-          const ref = columnName(columnIndex) + (rowIndex + 1);
-          const isNumber = rowIndex > 0;
-          return isNumber
-            ? '<c r="' + ref + '"><v>' + escapeXml(value) + '</v></c>'
-            : '<c r="' + ref + '" t="inlineStr"><is><t>' + escapeXml(value) + '</t></is></c>';
+
+    const makeXlsx = (matrix) => {
+      const textEncoder = new TextEncoder();
+      const sheetRows = matrix.map((row, rIdx) => {
+        const cells = row.map((val, cIdx) => {
+          const ref = columnName(cIdx) + (rIdx + 1);
+          if (typeof val === 'number') {
+            return '<c r="' + ref + '"><v>' + val + '</v></c>';
+          }
+          return '<c r="' + ref + '" t="inlineStr"><is><t>' + escapeXml(val ?? '') + '</t></is></c>';
         }).join('');
-        return '<row r="' + (rowIndex + 1) + '">' + cells + '</row>';
+        return '<row r="' + (rIdx + 1) + '">' + cells + '</row>';
       }).join('');
+
       const sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-        '<dimension ref="A1:D' + dataRows.length + '"/><sheetData>' + sheetRows + '</sheetData></worksheet>';
-      const files = {
-        '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-          '<Default Extension="xml" ContentType="application/xml"/>' +
-          '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-          '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
-          '</Types>',
-        '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
-          '</Relationships>',
-        'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-          '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-          '<sheets><sheet name="霍尔测磁实验数据" sheetId="1" r:id="rId1"/></sheets></workbook>',
-        'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
-          '</Relationships>',
-        'xl/worksheets/sheet1.xml': sheetXml,
-      };
+        '<sheetData>' + sheetRows + '</sheetData>' +
+        '</worksheet>';
+
+      const contentTypesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        '</Types>';
+
+      const rootRelsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+        '</Relationships>';
+
+      const workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheets><sheet name="实验数据" sheetId="1" r:id="rId1"/></sheets>' +
+        '</workbook>';
+
+      const workbookRelsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+        '</Relationships>';
+
+      const files = [
+        { name: '[Content_Types].xml', data: textEncoder.encode(contentTypesXml) },
+        { name: '_rels/.rels', data: textEncoder.encode(rootRelsXml) },
+        { name: 'xl/_rels/workbook.xml.rels', data: textEncoder.encode(workbookRelsXml) },
+        { name: 'xl/workbook.xml', data: textEncoder.encode(workbookXml) },
+        { name: 'xl/worksheets/sheet1.xml', data: textEncoder.encode(sheetXml) },
+      ];
+
       const localParts = [];
       const centralParts = [];
       let offset = 0;
-      for (const [name, content] of Object.entries(files)) {
-        const nameBytes = encoder.encode(name);
-        const data = encoder.encode(content);
+      for (const file of files) {
+        const nameBytes = textEncoder.encode(file.name);
+        const data = file.data;
         const crc = crc32(data);
+
         const local = new Uint8Array(30 + nameBytes.length + data.length);
         const localView = new DataView(local.buffer);
         localView.setUint32(0, 0x04034b50, true);
         localView.setUint16(4, 20, true);
+        localView.setUint16(6, 20, true);
         localView.setUint32(14, crc, true);
         localView.setUint32(18, data.length, true);
         localView.setUint32(22, data.length, true);
@@ -4674,51 +4652,170 @@ export function exportHallDataReport(data) {
       endView.setUint32(16, offset, true);
       return joinBytes([...localParts, centralDirectory, end]);
     };
-    const worksheet = XLSX.utils.aoa_to_sheet([reportHeaders, ...reportRows]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, '霍尔测磁实验数据');
-    const xlsxData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    downloadReportFile(
-      stem + '.xlsx',
-      xlsxData,
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-  };
 
-  const win = window.open('', '_blank');
-  if (!win) {
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return true;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  const bindReportButton = (selector, handler) => {
-    const button = win.document.querySelector(selector);
-    if (!button) return;
-    // The report template also contains legacy inline handlers. Clear both the
-    // attribute and the DOM property so one click cannot trigger two downloads.
-    button.removeAttribute('onclick');
-    button.onclick = (event) => {
-      event.preventDefault();
-      try {
-        handler(event);
-      } catch (error) {
-        console.error('导出实验数据失败:', error);
-        win.alert('导出失败，请重试。');
+    function showToast(msg) {
+      let toast = document.getElementById('report-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'report-toast';
+        toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.92);color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:9999;transition:opacity 0.25s ease, transform 0.25s ease;pointer-events:none;';
+        document.body.appendChild(toast);
       }
-    };
-  };
-  bindReportButton('.btn-primary', () => win.print());
-  bindReportButton('.btn-excel', () => exportReportData('excel'));
-  bindReportButton('.btn-csv', () => exportReportData('csv'));
-  bindReportButton('.btn-json', () => exportReportData('json'));
-  bindReportButton('.btn-secondary', () => win.close());
-  return true;
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(0)';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(8px)';
+      }, 2500);
+    }
+
+    function exportExcel() {
+      try {
+        const xCol = isHelmholtzMode ? '探头位置 X (m)' : '探杆刻度 X (cm)';
+        const headers = ['序号', xCol, '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
+        const rows = rawRecords.map((r, i) => {
+          const rawPos = Number(r.pos || 0);
+          const posVal = isHelmholtzMode ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+          const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+          const rawVh = Number(r.vh || 0);
+          const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+          const rawB = Number(r.b || 0);
+          const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
+          return [
+            i + 1,
+            cleanPos.toFixed(isHelmholtzMode ? 3 : 1),
+            (vhV * 1000).toFixed(2),
+            bT.toFixed(4)
+          ];
+        });
+        const xlsxBytes = makeXlsx([headers, ...rows]);
+        const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+        downloadFile(filename, xlsxBytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        showToast('✅ 已导出 Excel (.xlsx) 表格');
+      } catch (err) {
+        console.warn('生成 .xlsx 失败，回退为 XML .xls:', err);
+        try {
+          const xCol = isHelmholtzMode ? '探头位置 X (m)' : '探杆刻度 X (cm)';
+          const headers = ['序号', xCol, '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
+          const rows = rawRecords.map((r, i) => {
+            const rawPos = Number(r.pos || 0);
+            const posVal = isHelmholtzMode ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+            const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+            const rawVh = Number(r.vh || 0);
+            const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+            const rawB = Number(r.b || 0);
+            const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
+            return [
+              i + 1,
+              cleanPos.toFixed(isHelmholtzMode ? 3 : 1),
+              (vhV * 1000).toFixed(2),
+              bT.toFixed(4)
+            ];
+          });
+          let xmlRows = '<Row ss:StyleID="Header">\\n' +
+            headers.map(h => '  <Cell><Data ss:Type="String">' + h + '</Data></Cell>').join('\\n') +
+            '\\n</Row>\\n';
+          rows.forEach(row => {
+            xmlRows += '<Row ss:StyleID="Cell">\\n' +
+              row.map(val => {
+                const isNum = !isNaN(val) && val !== '';
+                const type = isNum ? 'Number' : 'String';
+                return '  <Cell><Data ss:Type="' + type + '">' + val + '</Data></Cell>';
+              }).join('\\n') +
+              '\\n</Row>\\n';
+          });
+          const xml = '<?xml version="1.0" encoding="UTF-8"?>\\n' +
+            '<?mso-application progid="Excel.Sheet"?>\\n' +
+            '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\\n' +
+            ' xmlns:o="urn:schemas-microsoft-com:office:office"\\n' +
+            ' xmlns:x="urn:schemas-microsoft-com:office:excel"\\n' +
+            ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\\n' +
+            ' <Styles>\\n' +
+            '  <Style ss:ID="Header">\\n' +
+            '   <Font ss:Bold="1" ss:Color="#0F172A"/>\\n' +
+            '   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>\\n' +
+            '   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\\n' +
+            '  </Style>\\n' +
+            '  <Style ss:ID="Cell">\\n' +
+            '   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\\n' +
+            '  </Style>\\n' +
+            ' </Styles>\\n' +
+            ' <Worksheet ss:Name="霍尔测磁实验数据">\\n' +
+            '  <Table>\\n' +
+            '   <Column ss:Width="60"/>\\n' +
+            '   <Column ss:Width="140"/>\\n' +
+            '   <Column ss:Width="140"/>\\n' +
+            '   <Column ss:Width="150"/>\\n' +
+            xmlRows +
+            '  </Table>\\n' +
+            ' </Worksheet>\\n' +
+            '</Workbook>';
+          const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.xls';
+          downloadFile(filename, xml, 'application/vnd.ms-excel');
+          showToast('✅ 已导出 Excel (.xls) 表格');
+        } catch (e2) {
+          console.error('导出 Excel 失败:', e2);
+          showToast('❌ 导出 Excel 失败: ' + (e2?.message || e2));
+        }
+      }
+    }
+
+    function exportCSV() {
+      try {
+        const xCol = isHelmholtzMode ? '探头位置 X (m)' : '探杆刻度 X (cm)';
+        const headers = ['序号', xCol, '霍尔电压 VH (mV)', '磁感应强度 B (T)'];
+        const rows = rawRecords.map((r, i) => {
+          const rawPos = Number(r.pos || 0);
+          const posVal = isHelmholtzMode ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+          const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+          const rawVh = Number(r.vh || 0);
+          const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+          const rawB = Number(r.b || 0);
+          const bT = Math.abs(rawB) > 0.05 ? rawB / 1000 : rawB;
+          return [
+            i + 1,
+            cleanPos.toFixed(isHelmholtzMode ? 3 : 1),
+            (vhV * 1000).toFixed(2),
+            bT.toFixed(4)
+          ];
+        });
+        const csvContent = '\\uFEFF' + [headers, ...rows].map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\\r\\n');
+        const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.csv';
+        downloadFile(filename, csvContent, 'text/csv;charset=utf-8;');
+        showToast('✅ 已导出 CSV 数据文件');
+      } catch (err) {
+        console.error('导出 CSV 失败:', err);
+        showToast('❌ 导出 CSV 失败: ' + (err?.message || err));
+      }
+    }
+
+    function exportJSON() {
+      try {
+        const payload = {
+          experiment: "霍尔效应测磁实验",
+          instrument: "HCC-2 型霍尔效应测磁仪",
+          hallK: kVal,
+          exportedAt: new Date().toLocaleString('zh-CN'),
+          records: rawRecords
+        };
+        const jsonContent = JSON.stringify(payload, null, 2);
+        const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.json';
+        downloadFile(filename, jsonContent, 'application/json;charset=utf-8;');
+        showToast('✅ 已导出 JSON 数据文件');
+      } catch (err) {
+        console.error('导出 JSON 失败:', err);
+        showToast('❌ 导出 JSON 失败: ' + (err?.message || err));
+      }
+    }
+
+    window.exportExcel = exportExcel;
+    window.exportCSV = exportCSV;
+    window.exportJSON = exportJSON;
+  </script>
+</body>
+</html>`;
+
+  return openHtmlReport(html, 'hall_effect_report');
 }

@@ -610,6 +610,168 @@ function createFullStationEquipment(ctx) {
     }), 0.003);
     sensorTip.position.x = -0.02;
     hallProbe.add(sensorTip);
+
+    function makeProbeLabelSprite() {
+      if (typeof document === 'undefined') {
+        return { sprite: new THREE.Group(), laserStem: new THREE.Group(), update: () => {} };
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+      }));
+      // Large, clearly visible HUD: width 0.32m, height 0.08m
+      sprite.scale.set(0.32, 0.08, 1);
+      sprite.renderOrder = 35;
+      sprite.raycast = () => {};
+
+      // Vertical holographic laser beam connecting probe axis to floating HUD
+      const laserStemMat = new THREE.MeshBasicMaterial({
+        color: 0x0284c7,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const laserStemGeo = new THREE.CylinderGeometry(0.0012, 0.0012, 0.105, 8);
+      const laserStem = new THREE.Mesh(laserStemGeo, laserStemMat);
+      laserStem.position.set(0, 0.10, 0);
+      laserStem.raycast = () => {};
+
+      // Glowing anchor dot at probe level
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.003, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0x0284c7 }),
+      );
+      dot.position.set(0, -0.052, 0);
+      dot.raycast = () => {};
+      laserStem.add(dot);
+
+      let lastNumStr = '';
+      let lastUnitStr = '';
+      const render = (numStr, unit = ' cm') => {
+        lastNumStr = numStr;
+        lastUnitStr = unit;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const cx = canvas.width / 2;
+        const cy = 46;
+        const yLine = 92;
+
+        ctx.save();
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+
+        const prefix = 'X = ';
+        const fontSans = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif';
+
+        ctx.font = `bold 46px ${fontSans}`;
+        const prefixW = ctx.measureText(prefix).width;
+
+        ctx.font = `900 58px ${fontSans}`;
+        const numW = ctx.measureText(numStr).width;
+
+        ctx.font = `bold 40px ${fontSans}`;
+        const unitW = ctx.measureText(unit).width;
+
+        const totalW = prefixW + numW + unitW;
+        const startX = cx - totalW / 2;
+
+        // 1. Crisp white halo stroke behind all text for 100% contrast on any background
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+        ctx.lineWidth = 7;
+
+        let curX = startX;
+        ctx.font = `bold 46px ${fontSans}`;
+        ctx.strokeText(prefix, curX, cy);
+        curX += prefixW;
+
+        ctx.font = `900 58px ${fontSans}`;
+        ctx.strokeText(numStr, curX, cy);
+        curX += numW;
+
+        ctx.font = `bold 40px ${fontSans}`;
+        ctx.strokeText(unit, curX, cy);
+
+        // 2. Crisp foreground fills
+        curX = startX;
+
+        // Prefix 'X = ' in high-contrast cyan/blue
+        ctx.font = `bold 46px ${fontSans}`;
+        ctx.fillStyle = '#0284c7';
+        ctx.fillText(prefix, curX, cy);
+        curX += prefixW;
+
+        // Numerical value in PURE SOLID BLACK ("数字用黑色")
+        ctx.font = `900 58px ${fontSans}`;
+        ctx.fillStyle = '#000000';
+        ctx.fillText(numStr, curX, cy);
+        curX += numW;
+
+        // Unit in high-contrast cyan/blue
+        ctx.font = `bold 40px ${fontSans}`;
+        ctx.fillStyle = '#0284c7';
+        ctx.fillText(unit, curX, cy);
+
+        // 3. Datum rule beneath text with pointer notch
+        const ruleW = Math.max(160, totalW + 36);
+
+        // White halo for datum rule and arrow
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(cx - ruleW / 2, yLine);
+        ctx.lineTo(cx + ruleW / 2, yLine);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx - 9, yLine);
+        ctx.lineTo(cx, yLine + 12);
+        ctx.lineTo(cx + 9, yLine);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Vivid blue-cyan fill for rule and arrow
+        ctx.strokeStyle = '#0284c7';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - ruleW / 2, yLine);
+        ctx.lineTo(cx + ruleW / 2, yLine);
+        ctx.stroke();
+
+        ctx.fillStyle = '#0284c7';
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, yLine);
+        ctx.lineTo(cx, yLine + 11);
+        ctx.lineTo(cx + 8, yLine);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+        texture.needsUpdate = true;
+      };
+
+      const update = (val, isSolenoid = true, force = false) => {
+        const unit = isSolenoid ? ' cm' : ' m';
+        const num = typeof val === 'number'
+          ? (isSolenoid ? val.toFixed(1) : val.toFixed(3))
+          : (typeof val === 'string' ? (val.match(/[-0-9.]+/)?.[0] || '0.000') : '0.000');
+        if (num === lastNumStr && unit === lastUnitStr && !force) return;
+        render(num, unit);
+      };
+
+      return { sprite, laserStem, update };
+    }
+
+    const probeXLabel = makeProbeLabelSprite();
+    probeXLabel.sprite.position.set(0, 0.165, 0);
+    hallProbe.add(probeXLabel.sprite);
+    hallProbe.add(probeXLabel.laserStem);
     hallGroup.add(hallProbe);
 
     function makeHallReadout(label, initial) {
@@ -1886,14 +2048,32 @@ function createFullStationEquipment(ctx) {
       // Both devices remain present; only the probe changes measurement axis.
       hallProbe.position.z = targetSolenoid ? -0.24 : -0.02;
       hallProbe.position.y = targetSolenoid ? 0.245 : 0.28;
-      // Source model maps the full −0.25…0.25 m range to ±1.0 world units.
-      const rawProbe = Number(d.probePos || 0);
-      const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
-      hallProbe.position.x = THREE.MathUtils.clamp(probeM / 0.25, -1, 1) * 1.0;
+      const rawProbe = Number(d.probePos ?? (targetSolenoid ? 16 : 0));
       const rawCoil = Number(d.rightCoilPos ?? 0.05);
       const coilM = Math.abs(rawCoil) > 0.5 ? rawCoil / 100 : rawCoil;
       hallRightCoil.position.x = -0.02
         + THREE.MathUtils.clamp((coilM - 0.02) / 0.135, 0, 1) * 0.34;
+      if (targetSolenoid) {
+        // 探杆刻度 X (1..31 cm)，1 cm 为右端口，16 cm 为几何中心，31 cm 为左端口
+        const probeM = (16 - rawProbe) / 100;
+        hallProbe.position.x = THREE.MathUtils.clamp(probeM / 0.25, -1, 1) * 1.0;
+        probeXLabel.update(rawProbe, true);
+      } else {
+        // 亥姆霍兹线圈模式：固定左线圈 L1 中心为 X = 0.000 m，移动右线圈 L2 中心为 X = coilM (如 0.050 m)
+        // 在 hallGroup 坐标系中：
+        // 左线圈中心 = hallHelm.position.x (-0.04) + hallLeftCoil.position.x (-0.1) = -0.14
+        // 探头红尖中心 = hallProbe.position.x + sensorTip.position.x (-0.02)
+        // 当 probeM = 0 时，探头红尖中心与左线圈中心 -0.14 对齐：
+        // hallProbe.position.x = -0.14 - (-0.02) = -0.12
+        // 当 probeM = coilM 时，探头红尖中心与右线圈中心 xRightCoil 对齐：
+        // hallProbe.position.x = xRightCoil + 0.02
+        const probeM = Math.abs(rawProbe) > 0.5 ? rawProbe / 100 : rawProbe;
+        const xRightCoil = -0.04 + hallRightCoil.position.x;
+        const safeCoilM = Math.max(0.01, coilM);
+        const scale = (xRightCoil - (-0.14)) / safeCoilM;
+        hallProbe.position.x = THREE.MathUtils.clamp(-0.12 + probeM * scale, -0.65, 0.65);
+        probeXLabel.update(probeM, false);
+      }
       setHallSolenoidTurns(d.turns);
       const energy = d.wiring?.energized
         ? THREE.MathUtils.clamp(Number(d.Im || 0), 0, 1)

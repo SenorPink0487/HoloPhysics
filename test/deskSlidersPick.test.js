@@ -200,13 +200,13 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
   assert.equal(botRightPick?.action, 'faraday-reverse');
 });
 
-test('Hall slider with step=0.005 quantizes drag values to 0.005 multiples', async () => {
+test('Hall slider with step=0.01 quantizes drag values to 0.01 multiples', async () => {
   const { getDeskSliderConfig } = await import('../src/deskSliderCatalog.js');
   const config = getDeskSliderConfig('electro', 'hall_effect', { target: 'helmholtz' });
   const probeSpec = config.specs.find((s) => s.key === 'probePos');
-  assert.ok(probeSpec, 'expected probePos spec in hall config');
-  assert.equal(probeSpec.step, 0.005);
-  assert.equal(probeSpec.buttonDelta, 0.01);
+  assert.ok(probeSpec, 'expected probeSpec spec in hall config');
+  assert.equal(probeSpec.step, 0.01);
+  assert.equal(probeSpec.buttonDelta, 0.005);
 
   const panel = createDeskSliderPanel({ stationId: 'electro', accentHex: '#ec4899', accentNum: 0xec4899 });
   panel.position.set(0, 0.9, 0);
@@ -226,13 +226,13 @@ test('Hall slider with step=0.005 quantizes drag values to 0.005 multiples', asy
   }
   assert.ok(probeZ != null, 'expected to find probePos row Z');
 
-  // Sample multiple points across the track and verify value is an exact multiple of 0.005
+  // Sample multiple points across the track and verify value is an exact multiple of 0.01
   for (let x = -0.15; x <= 0.15; x += 0.012) {
     const pick = panel.userData.pickFromRay(rayTowardLocal(panel, x, 0.03, probeZ), 'probePos');
     assert.equal(pick?.key, 'probePos');
-    const remainder = Math.abs((pick.value - probeSpec.min) % 0.005);
-    const isStepMultiple = remainder < 1e-5 || Math.abs(remainder - 0.005) < 1e-5;
-    assert.ok(isStepMultiple, `expected ${pick.value} to be multiple of 0.005 from min ${probeSpec.min}`);
+    const remainder = Math.abs((pick.value - probeSpec.min) % 0.01);
+    const isStepMultiple = remainder < 1e-5 || Math.abs(remainder - 0.01) < 1e-5;
+    assert.ok(isStepMultiple, `expected ${pick.value} to be multiple of 0.01 from min ${probeSpec.min}`);
   }
 });
 
@@ -264,7 +264,7 @@ test('Hall slider row resolves discrete minus and plus buttons when aimed at lef
   assert.equal(minusPick.kind, 'action');
   assert.equal(minusPick.action, 'hall-set');
   assert.equal(minusPick.payload?.key, 'probePos');
-  assert.equal(minusPick.payload?.delta, -0.01);
+  assert.equal(minusPick.payload?.delta, -0.005);
 
   // Aim at right button (localX around +0.23)
   const plusPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0.23, 0.03, probeZ));
@@ -273,7 +273,7 @@ test('Hall slider row resolves discrete minus and plus buttons when aimed at lef
   assert.equal(plusPick.kind, 'action');
   assert.equal(plusPick.action, 'hall-set');
   assert.equal(plusPick.payload?.key, 'probePos');
-  assert.equal(plusPick.payload?.delta, 0.01);
+  assert.equal(plusPick.payload?.delta, 0.005);
 
   // Active drag lock: aiming at -0.23 while dragging probePos must NOT fire the button
   const dragPick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.23, 0.03, probeZ), 'probePos');
@@ -283,7 +283,7 @@ test('Hall slider row resolves discrete minus and plus buttons when aimed at lef
   assert.equal(dragPick.value, -0.25); // Clamped to min
 });
 
-test('Electro hall-set adjusts probePos by 0.01 delta and quantizes set values to 0.005', async () => {
+test('Electro hall-set adjusts probePos by 0.005 delta and quantizes set values to 0.01', async () => {
   const { createHandlers: createElectroHandlers } = await import('../src/experiments/electro.js');
   const ctx = {
     state: { expId: 'hall_effect', stepIndex: 2, data: {} },
@@ -298,26 +298,27 @@ test('Electro hall-set adjusts probePos by 0.01 delta and quantizes set values t
   };
   const handlers = createElectroHandlers(ctx);
   ctx.state.data = handlers.initData('hall_effect');
+  ctx.state.data.target = 'helmholtz';
 
-  // Test delta increments (+0.01 and -0.01)
+  // Test delta increments (+0.005 and -0.005)
   handlers.onUiAction('hall-set', { key: 'probePos', value: 0.00 });
   assert.equal(ctx.state.data.probePos, 0.00);
 
-  handlers.onUiAction('hall-set', { key: 'probePos', delta: 0.01 });
+  handlers.onUiAction('hall-set', { key: 'probePos', delta: 0.005 });
+  assert.equal(ctx.state.data.probePos, 0.005);
+
+  handlers.onUiAction('hall-set', { key: 'probePos', delta: 0.005 });
   assert.equal(ctx.state.data.probePos, 0.01);
 
-  handlers.onUiAction('hall-set', { key: 'probePos', delta: 0.01 });
-  assert.equal(ctx.state.data.probePos, 0.02);
+  handlers.onUiAction('hall-set', { key: 'probePos', delta: -0.005 });
+  assert.equal(ctx.state.data.probePos, 0.005);
 
-  handlers.onUiAction('hall-set', { key: 'probePos', delta: -0.01 });
-  assert.equal(ctx.state.data.probePos, 0.01);
-
-  // Test snapping to 0.005 on value set
+  // Test snapping to 0.01 on value set
   handlers.onUiAction('hall-set', { key: 'probePos', value: 0.018 });
   assert.equal(ctx.state.data.probePos, 0.020);
 
   handlers.onUiAction('hall-set', { key: 'probePos', value: -0.014 });
-  assert.equal(ctx.state.data.probePos, -0.015);
+  assert.equal(ctx.state.data.probePos, -0.01);
 });
 
 test('Desk slider panel plus and minus buttons have circular cylinder geometry', async () => {
@@ -338,6 +339,57 @@ test('Desk slider panel plus and minus buttons have circular cylinder geometry',
   assert.ok(minusBody, 'expected minus button body to be CylinderGeometry');
   assert.ok(plusBody, 'expected plus button body to be CylinderGeometry');
 });
+ 
+test('Electro hall-record triggers toast notification with sequence, position, VH, and milestone', async () => {
+  const { createHandlers: createElectroHandlers } = await import('../src/experiments/electro.js');
+  const toasts = [];
+  const deskPanel = createDeskSliderPanel({ stationId: 'electro', accentHex: '#ec4899', accentNum: 0xec4899 });
+  deskPanel.userData.setSpecs([
+    { kind: 'action', key: 'hall-record', label: '记录当前读数', action: 'hall-record' },
+  ]);
 
+  const ctx = {
+    state: { expId: 'hall_effect', stepIndex: 2, data: {} },
+    equipment: {
+      electro: { updateHall: () => {}, setHallWiring: () => {} },
+      deskSliders: { electro: deskPanel },
+    },
+    toast: (msg) => toasts.push(msg),
+    pushHud: () => {},
+    advanceStep: () => {},
+    setStep: () => {},
+    currentStep: () => ({ id: 'scan' }),
+    currentExp: () => null,
+    currentStation: () => null,
+  };
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+  ctx.state.data.target = 'helmholtz';
+  ctx.state.data.probePos = 0.015;
+  ctx.state.data.Im = 0.5;
+  ctx.state.data.Is = 0.005;
 
+  // First record
+  handlers.onUiAction('hall-record');
+  assert.equal(ctx.state.data.records.length, 1);
+  assert.ok(Number.isFinite(ctx.state.data.lastRecordedTime));
+  assert.equal(ctx.state.data.lastRecordedIndex, 0);
+  assert.equal(toasts.length, 1);
+  assert.ok(toasts[0].includes('已记录第 1 组'));
+  assert.ok(toasts[0].includes('X=0.015 m'));
+  assert.ok(toasts[0].includes('VH='));
+
+  // Second record
+  handlers.onUiAction('hall-record');
+  assert.equal(ctx.state.data.records.length, 2);
+  assert.equal(toasts.length, 2);
+  assert.ok(toasts[1].includes('已记录第 2 组'));
+
+  // Third record triggers milestone prompt in toast
+  handlers.onUiAction('hall-record');
+  assert.equal(ctx.state.data.records.length, 3);
+  assert.equal(toasts.length, 3);
+  assert.ok(toasts[2].includes('已记录第 3 组'));
+  assert.ok(toasts[2].includes('可拟合'));
+});
 

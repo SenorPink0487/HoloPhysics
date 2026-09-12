@@ -8,8 +8,12 @@ export function formatExperimentData(stationId, expId, data) {
     const target = isSolenoid ? '长螺线管' : '亥姆霍兹线圈';
     const records = Array.isArray(data.records) ? data.records : [];
     const wiringText = data.wiring?.energized ? `${data.wiring.label}${data.wiring.reversed ? '（反接）' : '（正接）'}` : data.wiring?.status === 'invalid' ? '接线无效/未闭合' : 'Im 输出未接线';
-    const rawPos = Number(data.probePos || 0);
-    const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
+    const rawPos = Number(data.probePos ?? (isSolenoid ? 16 : 0));
+    const posVal = isSolenoid
+      ? (Math.abs(rawPos) <= 0.5 ? rawPos * 100 : rawPos)
+      : (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos);
+    const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+    const posText = isSolenoid ? `X = ${cleanPos.toFixed(1)} cm` : `X = ${cleanPos.toFixed(3)} m`;
     const rawVh = Number(data.vh || 0);
     const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
     const rawIs = Number(data.Is || 0);
@@ -19,7 +23,7 @@ export function formatExperimentData(stationId, expId, data) {
     const nDensity = Math.round(turns / (lenM > 1 ? lenM / 100 : lenM));
     const solInfo = isSolenoid ? `L = 300 mm　N = ${turns} (n = ${nDensity} 匝/米)　K = 301 V/(A·T)\n` : '';
     const viewMode = data.showCurve ? (data.showFit ? ' · 曲线图[已拟合]' : ' · 曲线散点图') : ' · 记录表';
-    return `对象: ${target}\n接线: ${wiringText}\n${solInfo}VH = ${(vhV * 1000).toFixed(2)} mV　X = ${posM.toFixed(3)} m\nIm = ${Number(data.Im || 0).toFixed(2)} A　Is = ${isA.toFixed(3)} A\n记录: ${records.length} 组${viewMode}`;
+    return `对象: ${target}\n接线: ${wiringText}\n${solInfo}VH = ${(vhV * 1000).toFixed(2)} mV　${posText}\nIm = ${Number(data.Im || 0).toFixed(2)} A　Is = ${isA.toFixed(3)} A\n记录: ${records.length} 组${viewMode}`;
   }
   if (expId === 'faraday_induction') {
     const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
