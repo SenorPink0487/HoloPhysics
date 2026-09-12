@@ -2233,41 +2233,65 @@ line-height: 1;
 
 #toast {
   position: fixed;
-  top: max(28px, env(safe-area-inset-top));
+  top: max(22px, env(safe-area-inset-top));
   left: 50%;
-  transform: translateX(-50%) translateY(-20px) scale(0.92);
+  transform: translateX(-50%) translateY(-22px) scale(0.92);
   z-index: 99995;
-  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.08) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.62);
-  color: #ffffff;
-  padding: 9px 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 9px 24px 9px 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-top-color: rgba(255, 255, 255, 0.48);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  font-size: 13px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%),
+    rgba(20, 22, 28, 0.58);
+  backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  -webkit-backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 20px 48px -8px rgba(0, 0, 0, 0.55),
+    0 6px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 13.5px;
   font-weight: 500;
-  letter-spacing: 0.025em;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  -webkit-font-smoothing: antialiased;
   opacity: 0;
   pointer-events: none;
-  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 28px -4px rgba(56, 189, 248, 0.32), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(56, 189, 248, 0.12);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.3);
-  -webkit-font-smoothing: antialiased;
-  max-width: 90vw;
+  max-width: min(90vw, 560px);
   text-align: center;
+  white-space: nowrap;
   overflow: hidden;
-  transition: opacity 0.4s cubic-bezier(0.34, 1.45, 0.64, 1), transform 0.45s cubic-bezier(0.34, 1.45, 0.64, 1);
+  text-overflow: ellipsis;
+  user-select: none;
+  transition:
+    transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s ease;
+}
+
+#toast:empty {
+  display: none;
 }
 
 #toast::before {
   content: '';
-  position: absolute;
-  inset: 1px 8px auto 8px;
-  height: 48%;
-  border-radius: 9999px 9999px 0 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 45%, transparent 100%);
-  pointer-events: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-color: #38bdf8;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='16' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12.01' y2='8'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='16' x2='12' y2='12'/%3E%3Cline x1='12' y1='8' x2='12.01' y2='8'/%3E%3C/svg%3E") no-repeat center / contain;
+  flex-shrink: 0;
 }
 
 #toast.show {
@@ -2281,11 +2305,11 @@ line-height: 1;
 
 @keyframes toast-bump {
   0% { transform: translateX(-50%) translateY(0) scale(0.96); }
-  50% { transform: translateX(-50%) translateY(2px) scale(1.03); }
+  50% { transform: translateX(-50%) translateY(1.5px) scale(1.025); }
   100% { transform: translateX(-50%) translateY(0) scale(1); }
 }
 
-/* ── Liquid Glass Experiment Switch Loader ── */
+/* ── Apple Frosted Glass Experiment Switch Loader ── */
 #experiment-switch-loader {
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
@@ -2295,42 +2319,36 @@ line-height: 1;
   align-items: center;
   gap: 11px;
   max-width: min(90vw, 400px);
-  padding: 8px 18px 8px 13px;
+  padding: 9px 24px 9px 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-top-color: rgba(255, 255, 255, 0.5);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.1) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.58);
-  color: #ffffff;
-  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 32px -4px rgba(56, 189, 248, 0.35), 0 0 16px 0 rgba(168, 85, 247, 0.2), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(56, 189, 248, 0.14);
-  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%),
+    rgba(20, 22, 28, 0.58);
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 20px 48px -8px rgba(0, 0, 0, 0.55),
+    0 6px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  -webkit-backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 13.5px;
   font-weight: 500;
-  letter-spacing: 0.025em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.35);
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -18px) scale(0.9, 0.85);
-  filter: blur(8px);
+  transform: translate(-50%, -20px) scale(0.92);
   overflow: hidden;
   transition:
-    opacity 0.18s ease,
-    transform 0.2s ease,
-    filter 0.18s ease;
-}
-
-#experiment-switch-loader::before,
-#shader-warmup-indicator::before {
-  content: '';
-  position: absolute;
-  inset: 1px 8px auto 8px;
-  height: 48%;
-  border-radius: 9999px 9999px 0 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 45%, transparent 100%);
-  pointer-events: none;
-  z-index: 1;
+    transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s ease;
 }
 
 #experiment-switch-loader::after,
@@ -2339,7 +2357,7 @@ line-height: 1;
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  background: linear-gradient(105deg, transparent 20%, rgba(56, 189, 248, 0.2) 40%, rgba(255, 255, 255, 0.45) 50%, rgba(168, 85, 247, 0.2) 60%, transparent 80%);
+  background: linear-gradient(105deg, transparent 20%, rgba(56, 189, 248, 0.15) 40%, rgba(255, 255, 255, 0.35) 50%, rgba(168, 85, 247, 0.15) 60%, transparent 80%);
   background-size: 250% 100%;
   animation: liquid-glass-shimmer 4.2s ease-in-out infinite;
   pointer-events: none;
@@ -2350,7 +2368,6 @@ line-height: 1;
 #experiment-switch-loader.show {
   opacity: 1;
   transform: translate(-50%, 0) scale(1, 1);
-  filter: blur(0);
 }
 
 /* ── Liquid Mercury Orb / Quantum Spinner ── */
@@ -2375,7 +2392,7 @@ line-height: 1;
   z-index: 3;
 }
 
-/* ── Liquid Glass Shader Warmup Indicator ── */
+/* ── Apple Frosted Glass Shader Warmup Indicator ── */
 #shader-warmup-indicator {
   position: fixed;
   top: clamp(64px, 10vh, 112px);
@@ -2385,31 +2402,37 @@ line-height: 1;
   align-items: center;
   gap: 11px;
   max-width: min(90vw, 450px);
-  padding: 8px 18px 8px 13px;
+  padding: 9px 24px 9px 16px;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-top-color: rgba(255, 255, 255, 0.5);
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.1) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.58);
-  color: #ffffff;
-  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 32px -4px rgba(56, 189, 248, 0.35), 0 0 16px 0 rgba(168, 85, 247, 0.2), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(56, 189, 248, 0.14);
-  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.025em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%),
+    rgba(20, 22, 28, 0.58);
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 20px 48px -8px rgba(0, 0, 0, 0.55),
+    0 6px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  -webkit-backdrop-filter: blur(30px) saturate(210%) brightness(1.1);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -18px) scale(0.9, 0.85);
-  filter: blur(8px);
+  transform: translate(-50%, -20px) scale(0.92);
   overflow: hidden;
   white-space: nowrap;
   transition:
-    opacity 0.4s cubic-bezier(0.34, 1.45, 0.64, 1),
-    transform 0.45s cubic-bezier(0.34, 1.45, 0.64, 1),
-    filter 0.35s ease;
+    transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.28s ease;
 }
 
 #shader-warmup-indicator.show {
