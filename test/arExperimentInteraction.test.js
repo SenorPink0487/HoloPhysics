@@ -325,6 +325,14 @@ test('Hall export report places data table before chart and models single-coil c
     // 2. Single coil L1 (fixed) condition text is properly displayed
     assert.ok(openedHtml.includes('固定线圈 L1'));
     assert.ok(openedHtml.includes('单线圈通电 (固定线圈 L1 中心 X=0.000m)'));
+
+    // 3. Standalone self-contained export buttons and script handlers
+    assert.ok(openedHtml.includes('onclick="exportExcel()"'));
+    assert.ok(openedHtml.includes('onclick="exportCSV()"'));
+    assert.ok(openedHtml.includes('onclick="exportJSON()"'));
+    assert.ok(openedHtml.includes('onclick="window.print()"'));
+    assert.ok(openedHtml.includes('function exportExcel'));
+    assert.ok(openedHtml.includes('makeXlsx'));
   } finally {
     globalThis.window = globalWindow;
   }
@@ -413,7 +421,7 @@ test('Hall probe grab applies continuous camera-drag via updateManipulation', ()
   const start = ctx.state.data.probePos;
   // holdInteract needs >0.08s accum before dragging starts
   handlers.updateManipulation(probe, { dt: 0.1, time: 0.1 });
-  mouseDrag.movementX = 80;
+  mouseDrag.movementX = -80;
   handlers.updateManipulation(probe, { dt: 0.05, time: 0.15 });
   assert.ok(
     ctx.state.data.probePos > start,
@@ -446,7 +454,7 @@ test('Hall probe raycast drag maintains grab point on rod without snapping to ti
     hall_probe: true,
     hall_console: true,
   };
-  ctx.state.data.probePos = 0;
+  ctx.state.data.probePos = 1;
   ctx.state.stepIndex = 3;
 
   const probe = { userData: { role: 'hall_probe' } };
@@ -459,22 +467,22 @@ test('Hall probe raycast drag maintains grab point on rod without snapping to ti
 
   assert.equal(handlers.beginManipulation(probe, { raycaster: grabRay }), true);
   assert.equal(ctx.state.data.hallDragArmed, true);
-  // Offset should record: probePos(0) - hitX(0.8) * 0.25 = -0.20
-  assert.equal(ctx.state.data.hallDragOffset, -0.2);
+  // In solenoid mode: probePos(1) - hitSimPos(-0.8 * 25 = -20) = 21
+  assert.equal(ctx.state.data.hallDragOffset, 21);
 
   // Drag begins after accum > 0.08s
   handlers.updateManipulation(probe, { dt: 0.1, time: 0.1, raycaster: grabRay });
-  // probePos must remain 0 on first drag step (no jump / snap)
-  assert.equal(ctx.state.data.probePos, 0);
+  // probePos must remain 1 on first drag step (no jump / snap)
+  assert.equal(ctx.state.data.probePos, 1);
 
-  // Move pointer along X by +0.1m (to x = 0.9m, equivalent to +0.025m on scale)
+  // Move pointer along X by -0.1m (to x = 0.7m, pushing probe into solenoid by +2.5cm on scale)
   const moveRay = new THREE.Raycaster(
-    new THREE.Vector3(0.9, 1.28, -0.02),
+    new THREE.Vector3(0.7, 1.28, -0.02),
     new THREE.Vector3(0, -1, 0),
   );
   handlers.updateManipulation(probe, { dt: 0.05, time: 0.15, raycaster: moveRay });
-  assert.equal(ctx.state.data.probePos, 0.025);
-  assert.equal(lastProbe, 0.025);
+  assert.equal(ctx.state.data.probePos, 3.5);
+  assert.equal(lastProbe, 3.5);
 
   assert.equal(handlers.endManipulation(probe, { dragged: true }), true);
   assert.equal(ctx.state.data.hallDragArmed, false);
@@ -777,4 +785,105 @@ test('Hall effect formatExperimentData reflects showCurve and showFit modes in d
   const summaryFitted = formatExperimentData('electro', 'hall_effect', dataFitted);
   assert.ok(summaryFitted.includes('曲线图[已拟合]'), 'Fitted mode should include 已拟合 indicator');
   assert.notEqual(summaryScatter, summaryFitted, 'Summary string must change when fit is enabled');
+
+  // Verify Helmholtz probe display (meters with 3 decimals) vs Solenoid (cm with 1 decimal)
+  const helmData = { target: 'helmholtz', probePos: -0.010, showCurve: false };
+  const helmSummary = formatExperimentData('electro', 'hall_effect', helmData);
+  assert.ok(helmSummary.includes('X = -0.010 m'), 'Helmholtz summary must show X in meters with 3 decimals');
+
+  const solData = { target: 'solenoid', probePos: 16.0, showCurve: false };
+  const solSummary = formatExperimentData('electro', 'hall_effect', solData);
+  assert.ok(solSummary.includes('X = 16.0 cm'), 'Solenoid summary must show X in cm with 1 decimal');
+});
+
+test('Hall effect chart renders data points with + cross markers instead of circles', () => {
+  let arcCalled = false;
+  let linesDrawn = 0;
+  const mockCtx = {
+    save: () => {}, restore: () => {}, clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+    beginPath: () => {},
+    moveTo: () => {},
+    lineTo: () => { linesDrawn += 1; },
+    arc: () => { arcCalled = true; },
+    arcTo: () => {},
+    closePath: () => {}, fill: () => {}, stroke: () => {}, fillText: () => {}, strokeText: () => {},
+    measureText: (text) => ({ width: (text || '').length * 10 }),
+    setLineDash: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }), clip: () => {},
+  };
+
+  const W = 960, H = 720;
+  const data = {
+    target: 'solenoid',
+    stepIndex: 1,
+    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    showCurve: true,
+    showFit: false,
+    records: [
+      { target: 'solenoid', pos: 5, vh: 1.0, b: 0.05, Im: 0.5, Is: 5, direction: 0 },
+      { target: 'solenoid', pos: 10, vh: 2.0, b: 0.10, Im: 0.5, Is: 5, direction: 0 },
+    ],
+    direction: 0,
+    Im: 0.5,
+  };
+
+  drawHoloScreen(mockCtx, W, H, {
+    surface: 'display',
+    accentHex: '#38bdf8',
+    fullTitle: '电磁学',
+    enTitle: 'ELECTROMAGNETISM',
+    active: true,
+    hud: {
+      running: true,
+      experiment: { id: 'hall_effect', steps: [{ text: '识别' }, { text: '测量' }] },
+      stepIndex: 1,
+      data,
+    },
+  });
+
+  // Chart data points must be rendered using cross lines, not arc circles
+  assert.equal(arcCalled, false, 'Measured points on Hall chart should not use arc/circles');
+  assert.ok(linesDrawn >= 4, 'Each of the 2 data points should draw horizontal and vertical cross lines');
+});
+
+test('Hall effect export report script parses cleanly and defines export handlers on window', () => {
+  let reportHtml = '';
+  const origWindow = globalThis.window;
+  globalThis.window = {
+    open: () => ({
+      document: {
+        open: () => {},
+        write: (h) => { reportHtml = h; },
+        close: () => {},
+      }
+    })
+  };
+
+  try {
+    const data = {
+      target: 'solenoid',
+      records: [
+        { target: 'solenoid', pos: 1.0, vh: 0.005, b: 0.001, Im: 0.5, Is: 0.005 },
+        { target: 'solenoid', pos: 2.0, vh: 0.006, b: 0.0012, Im: 0.5, Is: 0.005 },
+      ]
+    };
+
+    assert.equal(exportHallDataReport(data), true);
+    assert.ok(reportHtml.length > 0);
+
+    const scriptMatch = reportHtml.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(scriptMatch, 'Report HTML must contain a <script> tag');
+
+    // Verify the script is syntactically valid JavaScript (compiles without error)
+    const scriptCode = scriptMatch[1];
+    const fn = new Function(scriptCode);
+    assert.equal(typeof fn, 'function');
+
+    // Verify export functions are defined and attached to window
+    assert.ok(scriptCode.includes('window.exportExcel = exportExcel'));
+    assert.ok(scriptCode.includes('window.exportCSV = exportCSV'));
+    assert.ok(scriptCode.includes('window.exportJSON = exportJSON'));
+  } finally {
+    globalThis.window = origWindow;
+  }
 });

@@ -11,6 +11,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+*.bak
 
 # Env / local
 .env

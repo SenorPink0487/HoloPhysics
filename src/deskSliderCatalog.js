@@ -107,9 +107,11 @@ function hallSpecs(d) {
   return [
     range('Im', '励磁电流 Im', 0, 1, { unit: 'A', step: 0.01, buttonDelta: 0.01, setAction: 'hall-set' }),
     range('Is', '霍尔电流 Is', 0, 0.010, { unit: 'A', digits: 3, step: 0.0005, buttonDelta: 0.001, setAction: 'hall-set' }),
-    range('probePos', '探头 X', -0.25, 0.25, { unit: 'm', digits: 3, step: 0.005, buttonDelta: 0.01, setAction: 'hall-set' }),
     target === 'helmholtz'
-      ? range('rightCoilPos', '右线圈位置', 0.02, 0.155, { unit: 'm', digits: 3, step: 0.005, buttonDelta: 0.01, setAction: 'hall-set' })
+      ? range('probePos', '探头 X', -0.25, 0.25, { unit: 'm', digits: 3, step: 0.01, buttonDelta: 0.005, setAction: 'hall-set' })
+      : range('probePos', '探杆刻度 X', 1, 31, { unit: 'cm', digits: 1, step: 0.5, buttonDelta: 1, setAction: 'hall-set' }),
+    target === 'helmholtz'
+      ? range('rightCoilPos', '右线圈位置', 0.02, 0.155, { unit: 'm', digits: 3, step: 0.01, buttonDelta: 0.005, setAction: 'hall-set' })
       : range('turns', '螺线管匝数 N', 10, 5000, { unit: '匝', digits: 0, step: 10, buttonDelta: 100, setAction: 'hall-set' }),
     // Primary capture control lives on the bench panel next to the apparatus.
     actionBtn('记录当前读数', 'hall-record'),

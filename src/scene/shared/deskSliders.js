@@ -908,6 +908,8 @@ export function createDeskSliderPanel({
       const btnIdx = Math.max(0, Math.min(count - 1, Math.floor(normX * count)));
       const btn = buttons[btnIdx] || {};
 
+      if (slot.actionPlane) pulseButtonMesh(slot.actionPlane);
+
       return {
         id: `desk-${stationId}-${btn.action || spec.key || 'action'}-${btnIdx}`,
         role: 'desk_action',
@@ -1004,6 +1006,173 @@ export function createDeskSliderPanel({
     applyEdgeAnchor();
   }
 
+  /**
+   * Spawns a 3D holographic floating capsule badge rising from the desk control area.
+   * @param {object} opts
+   * @param {string} opts.text Primary message, e.g. '✓ 已记录第 1 组'
+   * @param {string} [opts.subtext] Secondary info, e.g. 'X = 0.015 m · VH = 1.17 mV · B = 0.0039 T'
+   * @param {string} [opts.action] Action name to anchor above
+   * @param {number} [opts.z] Local Z override
+   * @param {string} [opts.color] Accent color override
+   */
+  function showFloatingBadge(opts = {}) {
+    const text = String(opts.text || '✓ 已记录');
+    const subtext = opts.subtext ? String(opts.subtext) : '';
+    const color = opts.color || accentHex || '#10b981';
+
+    let localZ = 0;
+    if (Number.isFinite(opts.z)) {
+      localZ = opts.z;
+    } else {
+      const matchSlot = slots.find((s) => s.spec && (
+        (opts.action && (s.spec.action === opts.action || s.spec.key === opts.action))
+        || s.spec.kind === 'action'
+      ));
+      if (matchSlot) {
+        localZ = matchSlot.row.position.z;
+      }
+    }
+
+    if (typeof document === 'undefined') {
+      root.userData._lastFloatingBadge = { text, subtext, localZ, time: Date.now() };
+      return;
+    }
+
+    const cW = 512;
+    const cH = 160;
+    const canvas = document.createElement('canvas');
+    canvas.width = cW;
+    canvas.height = cH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || typeof ctx.save !== 'function') {
+      root.userData._lastFloatingBadge = { text, subtext, localZ, time: Date.now() };
+      return;
+    }
+
+    // Background Cyber Glass Capsule
+    const pad = 8;
+    const w = cW - pad * 2;
+    const h = cH - pad * 2;
+    const r = Math.round(h * 0.44);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pad + r, pad);
+    ctx.arcTo(pad + w, pad, pad + w, pad + h, r);
+    ctx.arcTo(pad + w, pad + h, pad, pad + h, r);
+    ctx.arcTo(pad, pad + h, pad, pad, r);
+    ctx.arcTo(pad, pad, pad + w, pad, r);
+    ctx.closePath();
+
+    // Dark liquid glass gradient
+    const bgGrad = ctx.createLinearGradient(0, pad, 0, pad + h);
+    bgGrad.addColorStop(0, 'rgba(8, 24, 38, 0.94)');
+    bgGrad.addColorStop(1, 'rgba(2, 12, 22, 0.96)');
+    ctx.fillStyle = bgGrad;
+    ctx.fill();
+
+    // Specular top highlight crescent
+    ctx.save();
+    ctx.clip();
+    const glossGrad = ctx.createLinearGradient(0, pad, 0, pad + h * 0.55);
+    glossGrad.addColorStop(0, 'rgba(255, 255, 255, 0.38)');
+    glossGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.08)');
+    glossGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = glossGrad;
+    ctx.fillRect(pad, pad, w, h * 0.55);
+    ctx.restore();
+
+    // Radiant neon border
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+
+    // Text rendering
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    if (subtext) {
+      ctx.font = 'bold 46px "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(16, 185, 129, 0.6)';
+      ctx.shadowBlur = 10;
+      ctx.fillText(text, cW / 2, pad + h * 0.38);
+
+      ctx.font = 'bold 24px "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = '#6ee7b7';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(subtext, cW / 2, pad + h * 0.74);
+    } else {
+      ctx.font = 'bold 50px "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(16, 185, 129, 0.7)';
+      ctx.shadowBlur = 12;
+      ctx.fillText(text, cW / 2, cH / 2);
+    }
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    const spriteW = 0.38;
+    const spriteH = spriteW * (cH / cW);
+    sprite.scale.set(spriteW * 0.6, spriteH * 0.6, 1);
+    sprite.position.set(0, baseH + 0.035, localZ);
+    sprite.renderOrder = 999;
+    sprite.raycast = () => {};
+    root.add(sprite);
+
+    root.userData._lastFloatingBadge = { text, subtext, localZ, sprite, time: Date.now() };
+
+    if (typeof requestAnimationFrame === 'undefined') {
+      return;
+    }
+
+    const startT = performance.now();
+    const duration = 1600;
+
+    function frame(now) {
+      const elapsed = now - startT;
+      const p = Math.min(1, elapsed / duration);
+
+      // Gentle vertical float upward by 9 cm
+      const easeOut = 1 - Math.pow(1 - p, 2);
+      sprite.position.y = baseH + 0.035 + easeOut * 0.09;
+
+      // Spring scale in initial 15%
+      if (p < 0.15) {
+        const s = 0.6 + 0.45 * Math.sin((p / 0.15) * Math.PI * 0.5);
+        sprite.scale.set(spriteW * s, spriteH * s, 1);
+        mat.opacity = p / 0.15;
+      } else if (p > 0.65) {
+        mat.opacity = Math.max(0, 1 - (p - 0.65) / 0.35);
+        const exp = 1.0 + 0.05 * ((p - 0.65) / 0.35);
+        sprite.scale.set(spriteW * exp, spriteH * exp, 1);
+      } else {
+        sprite.scale.set(spriteW, spriteH, 1);
+        mat.opacity = 1.0;
+      }
+
+      if (p < 1 && sprite.parent) {
+        requestAnimationFrame(frame);
+      } else {
+        root.remove(sprite);
+        tex.dispose();
+        mat.dispose();
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
   root.userData.setPresent = setPresent;
   root.userData.setSpecs = setSpecs;
   root.userData.syncValues = syncValues;
@@ -1011,6 +1180,7 @@ export function createDeskSliderPanel({
   root.userData.getActiveCount = () => activeCount;
   root.userData.setEdgeAnchor = setEdgeAnchor;
   root.userData.getSlots = () => slots;
+  root.userData.showFloatingBadge = showFloatingBadge;
 
   setPresent(false);
   setSpecs([]);

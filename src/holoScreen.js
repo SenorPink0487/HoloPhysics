@@ -72,7 +72,6 @@ const HALL_SOLENOID_RADIUS_M = 0.005;
 /** Magnetic flux density in T from standard on-axis field equations. */
 function hallTheoreticalB(data, pos) {
   const rawX = Number(pos || 0);
-  const x = Math.abs(rawX) > 0.5 ? rawX / 100 : rawX;
   const Im = Number(data.Im || 0);
   let bTesla = 0;
   if (data.target === 'solenoid') {
@@ -83,12 +82,15 @@ function hallTheoreticalB(data, pos) {
     const radius = (rawRad > 0.5 ? rawRad / 100 : rawRad) || HALL_SOLENOID_RADIUS_M;
     const n = Number(data.turns || 2340) / length;
     const endCos = (z) => z / Math.sqrt(z * z + radius * radius);
+    // 探杆刻度 X (cm)，从 1.0 cm 测到 31.0 cm，中心为 16.0 cm
+    const x = (16.0 - rawX) / 100;
     bTesla = HALL_MU0 * n * Im * 0.5
       * (endCos(x + halfL) - endCos(x - halfL));
   } else {
     const rawRad = Number(data.coilRadius || 0.05);
     const radius = (rawRad > 0.5 ? rawRad / 100 : rawRad) || HALL_COIL_RADIUS_M;
     const turns = Number(data.coilTurns || 210) || HALL_COIL_TURNS;
+    const x = Math.abs(rawX) > 0.5 ? rawX / 100 : rawX;
     const fixedX = 0;
     const rawMovingX = Number(data.rightCoilPos ?? 0.05);
     const movingX = Math.abs(rawMovingX) > 0.5 ? rawMovingX / 100 : rawMovingX;
@@ -1496,6 +1498,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   const identified = d.identified || {};
   const allIdentified = !!(identified.hall_helmholtz && identified.hall_solenoid && identified.hall_probe && identified.hall_console);
   const target = d.target || 'solenoid';
+  const isHelmholtz = target === 'helmholtz';
   const stepIndex = Number(d.stepIndex || 0);
   const records = Array.isArray(d.records) ? d.records : [];
   const gap = Math.round(10 * scale);
@@ -1815,29 +1818,33 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     ctx.fillText(titleText, rightX + pad, bodyY + rightHeadH / 2);
   });
 
+
   const chartX = rightX + pad;
   const chartY = bodyY + rightHeadH;
   const chartW = rightW - pad * 2;
   const chartH = Math.max(Math.round(96 * scale), bodyH - rightHeadH - rightFootH);
-  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(15, 23, 42, 0.78)';
-  roundRect(ctx, chartX, chartY, chartW, chartH, 8);
-  ctx.fill();
+      ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(15, 23, 42, 0.78)';
+      roundRect(ctx, chartX, chartY, chartW, chartH, 8);
+      ctx.fill();
 
   if (d.showCurve) {
-    const same = (a, b, eps = 1e-6) => Math.abs(Number(a) - Number(b)) <= eps;
-    const isHelmholtz = target === 'helmholtz';
+    const same = (a, b, eps = 1e-6) => {
+      if (a == null && b == null) return true;
+      return Math.abs(Number(a) - Number(b)) <= eps;
+    };
+    const currentDirection = Number(d.direction || 0);
     const shown = records.filter((r) => r.target === target
       && (isHelmholtz || same(r.turns ?? d.turns, d.turns))
       && (target !== 'helmholtz' || same(r.rightCoilPos ?? d.rightCoilPos, d.rightCoilPos))
       && same(r.Im ?? d.Im, d.Im)
-      && Number(r.direction ?? d.direction) === Number(d.direction));
-    const xMin = -0.15;
-    const xMax = 0.15;
+      && Number(r.direction || 0) === currentDirection);
+    const xMin = isHelmholtz ? -0.05 : 1;
+    const xMax = isHelmholtz ? 0.15 : 31;
 
     const measured = shown.map((r) => {
       const rawPos = Number(r.pos || 0);
       return {
-        x: Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos,
+        x: isHelmholtz ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos,
         b: hallRecordedB(r),
         coilMode: r.coilMode || 'both',
       };
@@ -1917,18 +1924,25 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
     ctx.lineWidth = 1;
     ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
-    for (let i = 0; i <= 4; i++) {
-      const t = i / 4;
+    for (let i = 0; i <= 6; i++) {
+      const t = i / 6;
       const gx = plotL + (plotR - plotL) * t;
-      const gy = plotB - (plotB - plotT) * t;
       ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.14)';
       ctx.beginPath(); ctx.moveTo(gx, plotT); ctx.lineTo(gx, plotB); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(plotL, gy); ctx.lineTo(plotR, gy); ctx.stroke();
       fillSoftText(isLight ? '#0f172a' : 'rgba(203, 213, 225, 0.78)', () => {
         ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText((xMin + (xMax - xMin) * t).toFixed(2), gx, plotB + Math.round(3 * scale));
+        ctx.fillText((xMin + (xMax - xMin) * t).toFixed(isHelmholtz ? 2 : 1), gx, plotB + Math.round(3 * scale));
+      });
+    }
+    for (let j = 0; j <= 4; j++) {
+      const t = j / 4;
+      const gy = plotB - (plotB - plotT) * t;
+      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.14)';
+      ctx.beginPath(); ctx.moveTo(plotL, gy); ctx.lineTo(plotR, gy); ctx.stroke();
+      fillSoftText(isLight ? '#0f172a' : 'rgba(203, 213, 225, 0.78)', () => {
+        ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText((yMin + (yMax - yMin) * t).toFixed(4), plotL - Math.round(4 * scale), gy);
@@ -1944,7 +1958,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.textBaseline = 'top';
       ctx.fillText('B / T', chartX + Math.round(4 * scale), chartY + Math.round(4 * scale));
       ctx.textAlign = 'right';
-      ctx.fillText('X / m', plotR, plotB + Math.round(14 * scale));
+      ctx.fillText(isHelmholtz ? 'X / m' : 'X / cm', plotR, plotB + Math.round(14 * scale));
     });
 
     if (d.showFit) {
@@ -1978,34 +1992,29 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       if (p.x < xMin || p.x > xMax) return;
       const cx = px(p.x);
       const cy = py(p.b);
-      const r = Math.round(3.5 * scale);
-      let pointColor = isLight ? '#0284c7' : '#38bdf8';
-      if (isHelmholtz) {
-        if (p.coilMode === 'fixed') pointColor = isLight ? '#d97706' : '#fbbf24';
-        else if (p.coilMode === 'moving') pointColor = isLight ? '#059669' : '#34d399';
-      }
+      const isFixed = p.coilMode === 'fixed';
+      const isMoving = p.coilMode === 'moving';
+      const pointColor = isHelmholtz ? (isFixed ? '#d97706' : isMoving ? '#059669' : '#0284c7') : (isLight ? '#0284c7' : '#38bdf8');
+      const arm = Math.max(2.8, Math.round(3.6 * scale));
+      ctx.save();
       ctx.strokeStyle = pointColor;
-      ctx.lineWidth = Math.max(1.3, Math.round(1.6 * scale));
+      ctx.lineWidth = Math.max(1, 1.2 * scale);
+      ctx.lineCap = 'butt';
       ctx.beginPath();
-      ctx.moveTo(cx - r, cy);
-      ctx.lineTo(cx + r, cy);
-      ctx.moveTo(cx, cy - r);
-      ctx.lineTo(cx, cy + r);
+      ctx.moveTo(cx - arm, cy);
+      ctx.lineTo(cx + arm, cy);
+      ctx.moveTo(cx, cy - arm);
+      ctx.lineTo(cx, cy + arm);
       ctx.stroke();
+      ctx.restore();
     });
 
-    fillSoftText(isLight ? '#0f172a' : '#cbd5e1', () => {
+    fillSoftText(isLight ? '#475569' : '#94a3b8', () => {
       ctx.font = `bold ${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'right';
-      ctx.textBaseline = 'top';
-
-      if (d.showFit && curvesToDraw.length > 0) {
-        let curX = plotR;
-        const totalCountText = `+ 实测 ${shown.length} 组`;
-        ctx.fillStyle = isLight ? '#475569' : '#94a3b8';
-        ctx.fillText(totalCountText, curX, chartY + Math.round(4 * scale));
-        curX -= ctx.measureText(totalCountText).width + Math.round(10 * scale);
-
+      ctx.textBaseline = 'middle';
+      let curX = plotR;
+      if (isHelmholtz) {
         for (let idx = curvesToDraw.length - 1; idx >= 0; idx -= 1) {
           const item = curvesToDraw[idx];
           const text = `— ${item.label}`;
@@ -2023,7 +2032,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     // Non-overlapping, compact column headers with clear gaps
     const cols = [
       { label: '#', x: 0.04, align: 'left' },
-      { label: 'X (m)', x: 0.35, align: 'right' },
+      { label: isHelmholtz ? 'X (m)' : 'X (cm)', x: 0.35, align: 'right' },
       { label: 'VH (mV)', x: 0.68, align: 'right' },
       { label: 'B (T)', x: 0.96, align: 'right' },
     ];
@@ -2075,12 +2084,16 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textBaseline = 'middle';
         const rawPos = Number(r.pos || 0);
-        const posM = Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos;
+        const posVal = isHelmholtz
+          ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos)
+          : (Math.abs(rawPos) <= 0.5 ? rawPos * 100 : rawPos);
+        const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+        const posXStr = cleanPos.toFixed(isHelmholtz ? 3 : 1);
         const rawVh = Number(r.vh || 0);
         const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
         const values = [
           String(start + i + 1),
-          posM.toFixed(3),
+          posXStr,
           (vhV * 1000).toFixed(2),
           hallRecordedB(r).toFixed(4),
         ];
