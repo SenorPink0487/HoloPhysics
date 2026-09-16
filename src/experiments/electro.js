@@ -1225,7 +1225,11 @@ export function createHandlers(ctx) {
       }
     }
     data.dragging = true;
-    data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
+    data._aimPoint = {
+      x: Number(targetObj.x || 0) * WORLD_SCALE,
+      y: Number(targetObj.z || 0) * WORLD_SCALE,
+      z: Number(targetObj.y || 0) * WORLD_SCALE,
+    };
     data._aimVisible = true;
     return true;
   }
@@ -2616,11 +2620,17 @@ export function createHandlers(ctx) {
       } else if (action === 'electric-move' && charge) {
         const axis = ['x', 'y', 'z'].includes(payload.axis) ? payload.axis : 'x';
         charge[axis] = clamp(charge[axis] + Number(payload.delta || 0), -4.5, 4.5);
+        if (data.dragStart && data.dragTarget === 'charge') {
+          data.dragStart[axis] = charge[axis];
+        }
       } else if (action === 'electric-center' && charge) {
         charge.x = 0; charge.y = 0; charge.z = 0;
       } else if (action === 'electric-probe-move') {
         const axis = ['x', 'y', 'z'].includes(payload.axis) ? payload.axis : 'x';
         probe[axis] = clamp(probe[axis] + Number(payload.delta || 0), -5, 5);
+        if (data.dragStart && data.dragTarget === 'probe') {
+          data.dragStart[axis] = probe[axis];
+        }
       } else if (action === 'electric-probe-charge') {
         const magnitude = clamp(Math.abs(probe.q0) + Number(payload.delta || 0), 0.2, 3);
         probe.q0 = Math.sign(probe.q0 || 1) * Math.round(magnitude * 10) / 10;
@@ -3436,6 +3446,7 @@ export function createHandlers(ctx) {
         data.dragTarget = null;
         data.dragStart = null;
         data._dragShiftZ = false;
+        data._aimVisible = false;
         // Release rebuilds field decorations (deferred inside equipment).
         syncElectricField(data);
       }

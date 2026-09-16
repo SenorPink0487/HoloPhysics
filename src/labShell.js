@@ -6762,20 +6762,24 @@ function animate(tickTime = performance.now()) {
       ? handTracking?.getHandState?.(handInteraction.hand)?.raycaster
       : null;
     const mouseMode = controls.isLocked || (!arPinchActive && !handInteraction?.target);
-    focusedTarget = mouseMode
-      ? pointerTarget
-      : (handInteraction?.target || handInteraction?.hoverTarget || pointerTarget);
+    const activeRay = unlockedElectroDrag
+      ? unlockedElectroRaycaster
+      : (mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster));
+    focusedTarget = unlockedElectroDrag?.target
+      || (mouseMode
+        ? pointerTarget
+        : (handInteraction?.target || handInteraction?.hoverTarget || pointerTarget));
     const handHolding = arPinchActive;
     updateExperimentIntentFocus(
       focusedTarget,
-      mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster),
+      activeRay,
     );
     expManager.holdInteract(
       holdE || holdLMB || handHolding,
       t,
       dt,
       focusedTarget,
-      mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster),
+      activeRay,
     );
     // Heavy integrate runs in frameCoordinator → simDriver.fixedUpdate.
     // update() only does light sync when simOwnedByDriver is set.

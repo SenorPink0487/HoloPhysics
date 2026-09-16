@@ -738,13 +738,15 @@ export function createElectricFieldEquipment() {
   disablePick(groundProjGroup);
 
   function updateAxisGuides(charge, axisOrigin = null, data = null) {
-    if (!charge || !data?.showAxes) {
+    const showGuides = Boolean(data?.showAxes);
+    const showDrop = Boolean(data?.showAxes || data?.dragging);
+    if (!charge || (!showGuides && !showDrop)) {
       axisGuidesGroup.visible = false;
       groundProjGroup.visible = false;
       return;
     }
-    axisGuidesGroup.visible = true;
-    groundProjGroup.visible = true;
+    axisGuidesGroup.visible = showGuides;
+    groundProjGroup.visible = showDrop;
 
     // Anchor axis frame at axisOrigin (start position during drag, re-centers on drag end)
     const originSrc = axisOrigin || charge;
@@ -1416,7 +1418,17 @@ export function createElectricFieldEquipment() {
     }
 
     // Update 准星瞄准圆圈位置
-    if (data._aimVisible && data._aimPoint) {
+    const isDragging = Boolean(data.dragging);
+    const activeCharge = charges.find((c) => c.id === data.selectedId)
+      || charges[0]
+      || (data.probe ? { ...data.probe, x: data.probe.x, y: data.probe.y, z: data.probe.z } : null);
+
+    if (isDragging && activeCharge) {
+      const ax = Number(activeCharge.x || 0) * WORLD_PER_SOURCE_UNIT;
+      const az = Number(activeCharge.y || 0) * WORLD_PER_SOURCE_UNIT;
+      aimMarkerGroup.position.set(ax, 0.002, az);
+      aimMarkerGroup.visible = true;
+    } else if (data._aimVisible && data._aimPoint) {
       aimMarkerGroup.position.set(data._aimPoint.x, 0.002, data._aimPoint.z);
       aimMarkerGroup.visible = true;
     } else {
@@ -1424,7 +1436,6 @@ export function createElectricFieldEquipment() {
     }
 
     // Update 电荷 3D 坐标轴与虚线投影（拖动时坐标轴保持原位作为参照基准，拖动释放后重置中心）
-    const activeCharge = charges.find((c) => c.id === data.selectedId) || charges[0] || (data.probe ? { ...data.probe, x: data.probe.x, y: data.probe.y, z: data.probe.z } : null);
     const axisOrigin = (data.dragging && data.dragStart) ? data.dragStart : activeCharge;
     updateAxisGuides(activeCharge, axisOrigin, data);
   };

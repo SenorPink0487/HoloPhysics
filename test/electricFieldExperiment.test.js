@@ -672,4 +672,40 @@ test('electric-field charge chip buttons render with enlarged font size and heig
   assert.ok(chipHit.h >= 45, `charge chip height should be >= 45px, got ${chipHit.h}`);
 });
 
+test('electric-field aim marker tracks charge ground projection and clears on release', () => {
+  const eq = createElectricFieldEquipment();
+  const mouseDrag = { holdLMB: false, movementX: 0, movementY: 0 };
+  const customEquipment = {
+    electro: {
+      updateElectricField: (d, dt) => eq.userData.update(d, dt),
+      mouseDrag,
+    },
+  };
+  const { state, handlers } = context(customEquipment);
+
+  const target = { userData: { role: 'electric_charge', chargeId: 1 } };
+  assert.equal(handlers.beginManipulation(target), true);
+  assert.equal(state.data.dragging, true);
+
+  const aimMarker = eq.getObjectByName('aim-marker-ring');
+  assert.ok(aimMarker, 'aim marker ring exists in equipment');
+
+  state.data.charges[0].x = 1.2;
+  state.data.charges[0].y = 2.4;
+  state.data.charges[0].z = 0.8;
+  state.data._aimVisible = true;
+  eq.userData.update(state.data, 1 / 60);
+
+  assert.equal(aimMarker.visible, true);
+  close(aimMarker.position.x, 1.2 * 0.13, 1e-6);
+  close(aimMarker.position.z, 2.4 * 0.13, 1e-6);
+  close(aimMarker.position.y, 0.002, 1e-6);
+
+  handlers.endManipulation(target);
+  assert.equal(state.data._aimVisible, false);
+  eq.userData.update(state.data, 1 / 60);
+  assert.equal(aimMarker.visible, false);
+});
+
+
 

@@ -131,15 +131,6 @@ function makeButtonTexture(symbol, accentHex = '#ec4899') {
   return tex;
 }
 
-function pulseButtonMesh(mesh) {
-  if (!mesh) return;
-  mesh.scale.set(0.92, 0.92, 0.92);
-  setTimeout(() => {
-    try {
-      mesh.scale.set(1, 1, 1);
-    } catch { /* ignore */ }
-  }, 120);
-}
 
 function renderActionGroupCanvas(c, ctx, buttons, accentHex = '#ec4899') {
   ctx.clearRect(0, 0, c.width, c.height);
@@ -927,8 +918,6 @@ export function createDeskSliderPanel({
       const btnIdx = Math.max(0, Math.min(count - 1, Math.floor(normX * count)));
       const btn = buttons[btnIdx] || {};
 
-      if (slot.actionPlane) pulseButtonMesh(slot.actionPlane);
-
       return {
         id: `desk-${stationId}-${btn.action || spec.key || 'action'}-${btnIdx}`,
         role: 'desk_action',
@@ -947,7 +936,6 @@ export function createDeskSliderPanel({
       const BTN_CLICK_THRESH = 0.195;
       if (local.x < -BTN_CLICK_THRESH && local.x >= -baseW * 0.55) {
         const delta = Number.isFinite(spec.buttonDelta) ? spec.buttonDelta : 0.01;
-        if (slot.btnMinus) pulseButtonMesh(slot.btnMinus);
         return {
           id: `desk-${stationId}-${spec.key || 'slider'}-minus`,
           role: 'desk_action',
@@ -966,7 +954,6 @@ export function createDeskSliderPanel({
       }
       if (local.x > BTN_CLICK_THRESH && local.x <= baseW * 0.55) {
         const delta = Number.isFinite(spec.buttonDelta) ? spec.buttonDelta : 0.01;
-        if (slot.btnPlus) pulseButtonMesh(slot.btnPlus);
         return {
           id: `desk-${stationId}-${spec.key || 'slider'}-plus`,
           role: 'desk_action',
