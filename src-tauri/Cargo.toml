@@ -1,6 +1,6 @@
 [package]
 name = "DAWU"
-version = "0.2.4"
+version = "0.2.5"
 description = "DAWU"
 authors = ["wuli"]
 edition = "2021"
