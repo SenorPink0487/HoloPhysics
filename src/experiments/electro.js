@@ -317,7 +317,7 @@ const HALL_K = 301;
 const HALL_COIL_RADIUS_M = 0.05;
 const HALL_COIL_TURNS = 210;
 const HALL_SOLENOID_LENGTH_M = 0.30;
-const HALL_SOLENOID_RADIUS_M = 0.005;
+const HALL_SOLENOID_RADIUS_M = 0.014;
 
 export function hallDemoVoltage(data) {
   const carrierSign = data?.nType === false ? 1 : -1;
@@ -815,6 +815,7 @@ export function createHandlers(ctx) {
         probePos: 16,
         rightCoilPos: 0.05,
         solenoidLength: 0.30,
+        solenoidRadius: 0.014,
         turns: 2340,
         direction: 1,
         zeroOffset: 0,
@@ -2041,7 +2042,9 @@ export function createHandlers(ctx) {
       const length = (rawLen > 1 ? rawLen / 100 : rawLen) || HALL_SOLENOID_LENGTH_M;
       const halfLength = length / 2;
       const turnsPerMetre = Number(data.turns || 2340) / length;
-      const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
+      const rawRad = Number(data.solenoidRadius || HALL_SOLENOID_RADIUS_M);
+      const radius = (rawRad > 0.5 ? rawRad / 100 : rawRad) || HALL_SOLENOID_RADIUS_M;
+      const endCos = (z) => z / Math.sqrt(z * z + radius ** 2);
       // 探杆刻度 X (cm)：从 1.0 cm 测到 31.0 cm，中心为 16.0 cm
       const x = (16.0 - rawPos) / 100;
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
@@ -2882,6 +2885,7 @@ export function createHandlers(ctx) {
         Is: isA,
         rightCoilPos: coilM,
         solenoidLength: lenM,
+        solenoidRadius: Number(data.solenoidRadius || HALL_SOLENOID_RADIUS_M),
         turns: data.turns,
         direction: data.direction,
         zeroOffset: data.zeroOffset,
@@ -4156,7 +4160,9 @@ export function exportHallDataReport(data) {
       const length = (rawLen > 1 ? rawLen / 100 : rawLen) || HALL_SOLENOID_LENGTH_M;
       const halfLength = length / 2;
       const turnsPerMetre = Number(r.turns || 2340) / length;
-      const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
+      const rawRad = Number(r.solenoidRadius || data.solenoidRadius || HALL_SOLENOID_RADIUS_M);
+      const radius = (rawRad > 0.5 ? rawRad / 100 : rawRad) || HALL_SOLENOID_RADIUS_M;
+      const endCos = (z) => z / Math.sqrt(z * z + radius ** 2);
       const xM = (16.0 - rawX) / 100;
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
         * (endCos(xM + halfLength) - endCos(xM - halfLength));

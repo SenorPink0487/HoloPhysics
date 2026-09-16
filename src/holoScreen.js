@@ -67,7 +67,7 @@ const HALL_K = 301; // calibrated representative value, V·A⁻¹·T⁻¹ (301 m
 const HALL_COIL_RADIUS_M = 0.05;
 const HALL_COIL_TURNS = 210;
 const HALL_SOLENOID_LENGTH_M = 0.30;
-const HALL_SOLENOID_RADIUS_M = 0.005;
+const HALL_SOLENOID_RADIUS_M = 0.014;
 
 /** Magnetic flux density in T from standard on-axis field equations. */
 function hallTheoreticalB(data, pos) {
@@ -78,7 +78,7 @@ function hallTheoreticalB(data, pos) {
     const rawLen = Number(data.solenoidLength || 0.30);
     const length = (rawLen > 2 ? rawLen / 100 : rawLen) || HALL_SOLENOID_LENGTH_M;
     const halfL = length / 2;
-    const rawRad = Number(data.solenoidRadius || 0.014);
+    const rawRad = Number(data.solenoidRadius || HALL_SOLENOID_RADIUS_M);
     const radius = (rawRad > 0.5 ? rawRad / 100 : rawRad) || HALL_SOLENOID_RADIUS_M;
     const n = Number(data.turns || 2340) / length;
     const endCos = (z) => z / Math.sqrt(z * z + radius * radius);
