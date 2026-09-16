@@ -25,3 +25,13 @@ Thumbs.db
 # Test output / CLI artifacts
 .playwright-cli/
 output/
+
+# Documents & Office files (prevent non-code assets from being committed)
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.xlsx
+*.xls
+*.pdf
+*.docx.bak
