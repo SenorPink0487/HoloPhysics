@@ -144,6 +144,65 @@ test('Faraday reverse B is a dynamic change to −B', () => {
   assert.ok(state.data.lastInduction);
 });
 
+test('Faraday reverse x in motional mode keeps channel x and reverses motion', () => {
+  const { state, handlers } = faradayContext();
+  handlers.onUiAction('faraday-channel', { channel: 'x' });
+  assert.equal(state.data.animChannel, 'x');
+
+  // Initial x = 4.5, targetX = 6.5. Reverse should target 4.5 - (6.5 - 4.5) = 2.5
+  handlers.onUiAction('faraday-reverse', {});
+  assert.ok(state.data.pendingAnim);
+  assert.equal(state.data.pendingAnim.channel, 'x');
+  assert.equal(state.data.animChannel, 'x', 'channel must remain x and NOT switch to B');
+  close(state.data.pendingAnim.to, 2.5, 1e-5);
+
+  // Verify desk slider config keeps motional channel
+  const cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
+  const motionBtn = cfg.specs[0].buttons.find((b) => b.label === '动生');
+  assert.equal(motionBtn.active, true, '动生 toggle button must remain active');
+
+  // Finish the animation
+  for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
+  assert.equal(state.data.pendingAnim, null);
+  close(state.data.x, 2.5, 1e-5);
+  assert.ok(state.data.lastMotion);
+  assert.equal(state.data.animChannel, 'x');
+
+  // Reverse again from 2.5 back towards 4.5
+  handlers.onUiAction('faraday-reverse', {});
+  assert.ok(state.data.pendingAnim);
+  assert.equal(state.data.pendingAnim.channel, 'x');
+  assert.equal(state.data.animChannel, 'x');
+  close(state.data.pendingAnim.to, 4.5, 1e-5);
+
+  for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
+  assert.equal(state.data.pendingAnim, null);
+  close(state.data.x, 4.5, 1e-5);
+  assert.equal(state.data.animChannel, 'x');
+});
+
+test('Faraday reverse x after auto play smoothly reverses back to start position', () => {
+  const { state, handlers } = faradayContext();
+  handlers.onUiAction('faraday-channel', { channel: 'x' });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 3 });
+  handlers.onUiAction('faraday-set', { key: 'targetX', value: 6 });
+  handlers.onUiAction('faraday-play', {});
+
+  for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
+  close(state.data.x, 6, 1e-5);
+
+  // In motional mode, clicking reverse should animate from 6 back to 3
+  handlers.onUiAction('faraday-reverse', {});
+  assert.ok(state.data.pendingAnim);
+  assert.equal(state.data.pendingAnim.channel, 'x');
+  assert.equal(state.data.animChannel, 'x');
+  close(state.data.pendingAnim.to, 3, 1e-5);
+
+  for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
+  close(state.data.x, 3, 1e-5);
+  assert.equal(state.data.animChannel, 'x');
+});
+
 test('live faraday-set x drag arms motional current while x changes', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });

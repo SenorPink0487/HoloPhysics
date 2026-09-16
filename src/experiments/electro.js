@@ -1692,6 +1692,10 @@ export function createHandlers(ctx) {
     return startFaradayAnim(data, { channel: 'B', to: target, duration });
   }
 
+  function startFaradayXChange(data, target, duration = 0.6) {
+    return startFaradayAnim(data, { channel: 'x', to: target, duration });
+  }
+
   function finishFaradayAnim(data) {
     const pending = data.pendingAnim;
     if (!pending) return false;
@@ -2495,7 +2499,46 @@ export function createHandlers(ctx) {
         const delta = Number(payload.delta || 0.2);
         startFaradayBChange(data, data.B + delta, 0.5);
       } else if (action === 'faraday-reverse') {
-        startFaradayBChange(data, -data.B, Math.max(0.5, Number(data.animDuration || 1.2) * 0.6));
+        const channel = payload.channel || data.animChannel || 'B';
+        const duration = Math.max(0.5, Number(payload.duration || data.animDuration || 1.2) * 0.6);
+        if (channel === 'x') {
+          const currentX = Number(data.x || 0);
+          let target;
+          const last = data.lastMotion;
+          if (last && Math.abs(currentX - last.x1) < 1e-3 && Math.abs(last.x0 - last.x1) > 1e-4) {
+            target = last.x0;
+          } else if (last && Math.abs(currentX - last.x0) < 1e-3 && Math.abs(last.x0 - last.x1) > 1e-4) {
+            target = last.x1;
+          } else {
+            const targetPreset = Number(data.targetX ?? currentX);
+            const dx = targetPreset - currentX;
+            if (Math.abs(dx) > 1e-4) {
+              target = clamp(currentX - dx, FARADAY_X_MIN, FARADAY_X_MAX);
+              if (Math.abs(target - currentX) < 1e-4) {
+                target = currentX <= FARADAY_X_MIN + 1e-4
+                  ? Math.min(FARADAY_X_MAX, currentX + Math.max(1.0, Math.abs(dx)))
+                  : Math.max(FARADAY_X_MIN, currentX - Math.max(1.0, Math.abs(dx)));
+              }
+            } else {
+              target = currentX > (FARADAY_X_MIN + FARADAY_X_MAX) * 0.5
+                ? Math.max(FARADAY_X_MIN, currentX - 2.0)
+                : Math.min(FARADAY_X_MAX, currentX + 2.0);
+            }
+          }
+          if (payload.to !== undefined) {
+            target = clamp(Number(payload.to), FARADAY_X_MIN, FARADAY_X_MAX);
+          }
+          const ok = startFaradayXChange(data, target, duration);
+          if (ok) {
+            toast('动生：反向变化演示中…');
+          }
+        } else {
+          const target = payload.to !== undefined ? Number(payload.to) : -Number(data.B || 0);
+          const ok = startFaradayBChange(data, target, duration);
+          if (ok) {
+            toast('感生：磁场反向演示中…');
+          }
+        }
       } else if (action === 'faraday-toggle-field') {
         data.showField = !data.showField;
       } else if (action === 'faraday-reset') {
