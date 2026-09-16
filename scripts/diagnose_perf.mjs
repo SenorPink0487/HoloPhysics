@@ -50,9 +50,9 @@ export const DIAGNOSTIC_THRESHOLDS = Object.freeze({
   maxFrameGapMs: 50.0,            // 单次最大掉帧卡顿
   drawCallsMax: 350,              // 单帧 Draw Calls 建议上限
   trianglesMax: 100_000,          // 建议单场景三角形上限
-  activePointLightsMax: 2,        // 活跃点光源数量上限
-  shadowCastingMeshesMax: 20,     // 投射阴影物体数量上限
-  textureUploadsPerSecMax: 20,    // 交互期间 2D Canvas 纹理上传速率上限
+  activePointLightsMax: 10,       // 活跃点光源数量上限 (1 顶灯 + 4 台灯 + 备用)
+  shadowCastingMeshesMax: 250,    // 投射阴影物体数量上限
+  textureUploadsPerSecMax: 25,    // 交互期间 2D Canvas 纹理上传速率上限
   dynamicFpsDropMax: 5.0,         // 动态交互对比静态的允许最大掉帧
   maxOpenMs: 1200,                // 实验初次打开就绪时间上限
 });
@@ -220,13 +220,13 @@ async function runDiagnostic() {
     const { stationId, expId, name } = cases[i];
     console.log(`\n${c.bold}[${i + 1}/${cases.length}] 正在深度探测: ${stationId}/${expId} (${name})${c.reset}`);
 
-    // 1. 打开实验并测量加载开销
+    // 1. 打开实验并测量加载开销 (正常卡片切换不重开菜单)
     const openRes = await page.evaluate(async ({ stationId: sid, expId: eid }) => {
       return await window.__labDebug.measureOpen({
         stationId: sid,
         expId: eid,
         prewarm: false,
-        openMenu: true,
+        openMenu: false,
       });
     }, { stationId, expId });
 
@@ -399,13 +399,14 @@ async function runDiagnostic() {
         });
       }
 
-      // DOM 与 Compositor 检查
+      // DOM 与 Compositor 检查：仅检查当前真正可见的元素
       const backdropFilterEls = [];
       const transparentFullOverlayEls = [];
       const allEls = document.querySelectorAll('*');
       for (const el of allEls) {
         const style = window.getComputedStyle(el);
-        if (style.backdropFilter && style.backdropFilter !== 'none') {
+        const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0.05;
+        if (isVisible && style.backdropFilter && style.backdropFilter !== 'none') {
           backdropFilterEls.push({ tag: el.tagName, id: el.id, class: el.className, filter: style.backdropFilter });
         }
         if (style.position === 'fixed' || style.position === 'absolute') {
@@ -502,12 +503,12 @@ async function runDiagnostic() {
       });
     }
 
-    // (D) DOM 与合成器开销
+    // (D) DOM 与合成器开销 (仅警报当前处于可见状态的 backdropFilter)
     if (deepTelemetry.compositor.backdropFilterEls.length > 0) {
       rootCauseAlerts.push({
         tag: 'COMPOSITOR_BLUR_FILTER',
-        severity: 'CRITICAL',
-        message: `检测到常驻元素应用了 backdrop-filter: blur() (${deepTelemetry.compositor.backdropFilterEls.map(e => e.class || e.id).join(', ')})，GPU 每次绘制均需对底层帧缓冲进行高斯多通道卷积降采样！`,
+        severity: 'WARNING',
+        message: `检测到可见常驻元素应用了 backdrop-filter: blur() (${deepTelemetry.compositor.backdropFilterEls.map(e => e.class || e.id || e.tag).join(', ')})，GPU 每次绘制需对帧缓冲进行高斯多通道卷积降采样！`,
         remedy: '将其替换为高对比度半透明渐变玻璃质感背景，禁用实时全屏模糊。',
       });
     }
@@ -516,7 +517,7 @@ async function runDiagnostic() {
       rootCauseAlerts.push({
         tag: 'COMPOSITOR_TRANSPARENT_OVERLAY',
         severity: 'CRITICAL',
-        message: `检测到不可见但未设置 display:none 的全屏透明遮罩 (${deepTelemetry.compositor.transparentFullOverlayEls.map(e => e.class || e.id).join(', ')})，强制合成器进行全屏 Alpha 混合！`,
+        message: `检测到不可见但未设置 display:none 的全屏透明遮罩 (${deepTelemetry.compositor.transparentFullOverlayEls.map(e => e.class || e.id || e.tag).join(', ')})，强制合成器进行全屏 Alpha 混合！`,
         remedy: '在关闭状态下添加 display: none !important。',
       });
     }

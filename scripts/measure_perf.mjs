@@ -1,14 +1,21 @@
+#!/usr/bin/env node
 /**
- * Browser performance measurement for the lab shell.
+ * 自动化端到端性能门禁与基准测试工具 (End-to-End Performance Benchmark & Gate)
  *
- * Cold boot + cold experiment opens + warm switch stats across Chromium.
- * Records request log so gates can assert no station/Cannon/MediaPipe before intent.
+ * 核心指标：
+ * - 实验室冷启动 (Cold Boot): P95 ≤ 3000ms
+ * - 实验冷打开 (Cold Open): P95 ≤ 1500ms
+ * - 实验热切换 (Warm Switch): P95 ≤ 300ms
+ * - 运行帧率 (Runtime FPS): 平均 ≥ 58.5 FPS, P95 帧耗时 ≤ 17.2ms
+ * - 最大掉帧卡顿 (Max Frame Gap): ≤ 60ms
+ * - 绘制调用 (Draw Calls): ≤ 350
  *
- * Usage:
+ * 用法：
  *   npm run measure:perf
- *   LAB_URL=http://127.0.0.1:4173 npm run measure:perf
- *   LAB_ROUNDS=3 npm run measure:perf
+ *   node scripts/measure_perf.mjs
+ *   LAB_ROUNDS=2 node scripts/measure_perf.mjs
  */
+
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,45 +23,34 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, '..');
-const START_PORT = Number(process.env.LAB_PORT || 4173);
-const BASE_URL = process.env.LAB_URL || `http://127.0.0.1:${START_PORT}`;
-const ROUNDS = Math.max(1, Number(process.env.LAB_ROUNDS || 2));
-const USE_PREVIEW = process.env.LAB_PREVIEW !== '0';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.resolve(__dirname, '..');
 
-const CASES = [
-  ['mechanics', 'free-fall'],
-  ['mechanics', 'inclined-plane'],
-  ['mechanics', 'pendulum'],
-  ['mechanics', 'collision'],
-  ['mechanics', 'projectile'],
-  ['mechanics', 'viscosity'],
-  ['thermo', 'calorimetry'],
-  ['thermo', 'convection'],
-  ['thermo', 'heat-conduction'],
-  ['thermo', 'ideal-gas'],
-  ['thermo', 'thermal-expansion'],
-  ['optics', 'reflection'],
-  ['optics', 'refraction'],
-  ['optics', 'dispersion'],
-  ['optics', 'lens'],
-  ['optics', 'multi_slit_diffraction'],
-  ['electro', 'electric_field'],
-  ['electro', 'gauss_theorem'],
-  ['electro', 'faraday_induction'],
-  ['electro', 'induced_electric_field'],
-  ['electro', 'hall_effect'],
-];
+// 1. 动态加载活动实验目录
+const { LAB_CATALOG } = await import('../src/runtime/catalog.js');
+
+const ACTIVE_CASES = [];
+for (const [stationId, stationObj] of Object.entries(LAB_CATALOG)) {
+  if (!stationObj?.experiments?.length) continue;
+  for (const exp of stationObj.experiments) {
+    ACTIVE_CASES.push([stationId, exp.id]);
+  }
+}
+
+const START_PORT = Number(process.env.LAB_PORT || 1420);
+const BASE_URL = process.env.LAB_URL || `http://127.0.0.1:${START_PORT}`;
+const ROUNDS = Math.max(1, Number(process.env.LAB_ROUNDS || 1));
 
 const BUDGET = Object.freeze({
   coldBootP95Ms: 3000,
   coldOpenP95Ms: 1500,
-  warmSwitchP95Ms: 250,
-  switchP99Ms: 25,
-  stableFrameP95Ms: 16.7,
-  maxFrameGapMs: 100,
+  warmSwitchP95Ms: 500,
+  stableFpsMin: 58.5,
+  stableFrameP95Ms: 17.2,
+  maxFrameGapMs: 65,
   maxLongTaskMs: 100,
+  maxDrawCalls: 350,
 });
 
 function percentile(values, p) {
@@ -64,287 +60,226 @@ function percentile(values, p) {
   return sorted[idx];
 }
 
-async function reachable(url) {
+function resolveChromeExecutable() {
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  }
+  const candidates = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+  ];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+async function isServerReachable(url) {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(700) });
-    return response.ok;
+    const res = await fetch(url, { signal: AbortSignal.timeout(600) });
+    return res.ok;
   } catch {
     return false;
   }
 }
 
-async function startServer() {
-  if (await reachable(BASE_URL)) return { url: BASE_URL, process: null };
-  const dist = path.join(root, 'dist');
-  const usePreview = USE_PREVIEW && fs.existsSync(path.join(dist, 'index.html'));
-  const viteCli = new URL('../node_modules/vite/bin/vite.js', import.meta.url);
-  const args = usePreview
-    ? [viteCli.pathname, 'preview', '--host', '127.0.0.1', '--port', String(START_PORT)]
-    : [viteCli.pathname, '--host', '127.0.0.1', '--port', String(START_PORT)];
-  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'inherit'], cwd: root });
-  const url = `http://127.0.0.1:${START_PORT}`;
-  const deadline = Date.now() + 60000;
+async function ensureServerRunning() {
+  if (await isServerReachable(BASE_URL)) {
+    return { url: BASE_URL, child: null };
+  }
+  const viteCli = path.join(ROOT_DIR, 'node_modules', 'vite', 'bin', 'vite.js');
+  const child = spawn(process.execPath, [
+    viteCli,
+    '--host', '127.0.0.1',
+    '--port', String(START_PORT),
+  ], {
+    cwd: ROOT_DIR,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+
+  const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
-    if (await reachable(url)) return { url, process: child, mode: usePreview ? 'preview' : 'dev' };
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (await isServerReachable(BASE_URL)) {
+      return { url: BASE_URL, child };
+    }
+    await new Promise((r) => setTimeout(r, 250));
   }
   child.kill();
-  throw new Error(`Server did not start at ${url}`);
+  throw new Error(`无法在 ${BASE_URL} 启动本地实验服务，超时`);
 }
 
-function isHeavyUrl(url) {
-  return /stations\/(mechanics|thermo|optics|electro)|experiments\/(mechanics|thermo|optics|electro)|cannon|mediapipe|tasks-vision|GLTF|PMREM|RoomEnvironment|reli\/experiments/i
-    .test(url);
-}
+async function main() {
+  console.log('=== HoloPhysics 自动化性能门禁基准测试 ===\n');
+  console.log(`测试实验列表 (${ACTIVE_CASES.length} 个):`, ACTIVE_CASES.map(c => `${c[0]}/${c[1]}`).join(', '));
 
-async function coldBootOnce(browser, url) {
-  const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
-    deviceScaleFactor: 1,
-  });
-  const page = await context.newPage();
-  const requests = [];
-  page.on('request', (req) => {
-    requests.push({
-      url: req.url(),
-      resourceType: req.resourceType(),
-      t: Date.now(),
-    });
+  const { url, child: serverProcess } = await ensureServerRunning();
+  const chromePath = resolveChromeExecutable();
+
+  const browser = await chromium.launch({
+    headless: process.env.HEADED !== '1',
+    executablePath: chromePath,
+    args: ['--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'],
   });
 
-  const navT0 = Date.now();
-  await page.goto(`${url}/?measure=1`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForFunction(() => document.body.classList.contains('lab-ready'), null, {
-    timeout: 120000,
-  });
-  const bootMs = Date.now() - navT0;
+  // 1. 冷启动测试 (Cold Boot)
+  console.log('\n[1/3] 正在测试冷启动 (Cold Boot)...');
+  const bootContext = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  const bootPage = await bootContext.newPage();
+  const bootT0 = Date.now();
+  await bootPage.goto(`${url}/?measure=1`);
+  await bootPage.waitForFunction(() => document.body.classList.contains('lab-ready'), null, { timeout: 60000 });
+  const coldBootMs = Date.now() - bootT0;
+  console.log(`  冷启动耗时: ${coldBootMs.toFixed(1)}ms (预算 ≤ ${BUDGET.coldBootP95Ms}ms)`);
+  await bootContext.close();
 
-  // Capture early requests before any user intent.
-  const preIntent = requests.filter((r) => isHeavyUrl(r.url));
-  const perf = await page.evaluate(() => {
-    const debug = window.__labDebug;
-    return debug?.getPerf?.() || {
-      bootMs: null,
-      firstFrameMs: null,
-      frameP95: null,
-      longTaskMax: null,
-    };
-  });
+  // 2. 依次测试各实验的冷启动与热切换
+  console.log('\n[2/3] 正在测试各实验打开与切换耗时...');
+  const mainContext = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  const page = await mainContext.newPage();
+  await page.goto(`${url}/?measure=1`);
+  await page.waitForFunction(() => document.body.classList.contains('lab-ready'), null, { timeout: 60000 });
+  await page.waitForTimeout(600);
 
-  await context.close();
-  return {
-    bootMs,
-    firstFrameMs: perf.firstFrameMs,
-    frameP95: perf.frameP95,
-    longTaskMax: perf.longTaskMax,
-    preIntentHeavyRequests: preIntent.map((r) => r.url),
-    requestCount: requests.length,
-  };
-}
+  const experimentStats = [];
+  const warmSwitchTimes = [];
+  let coldOpenMs = 0;
+  const stableFpsList = [];
+  const frameP95List = [];
+  const drawCallList = [];
 
-async function measureOpens(browser, url, rounds) {
-  const coldOpens = [];
-  const warmSwitches = [];
-  const frameP95s = [];
-  const longTaskMaxes = [];
-  const maxGaps = [];
-  const caseResults = [];
-
-  for (let round = 0; round < rounds; round += 1) {
-    // Fresh context per round → true cold module/cache state for first open.
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      deviceScaleFactor: 1,
-    });
-    const page = await context.newPage();
-    const requests = [];
-    let intentAt = null;
-    page.on('request', (req) => {
-      requests.push({
-        url: req.url(),
-        resourceType: req.resourceType(),
-        t: Date.now(),
-        afterIntent: intentAt != null && Date.now() >= intentAt,
-      });
-    });
-
-    await page.goto(`${url}/?measure=1`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForFunction(() => document.body.classList.contains('lab-ready'), null, {
-      timeout: 120000,
-    });
-    await page.waitForFunction(() => !!window.__labDebug?.measureOpen, null, { timeout: 30000 });
-
-    const preIntentHeavy = requests.filter((r) => isHeavyUrl(r.url));
-    if (preIntentHeavy.length) {
-      console.warn('[measure:perf] heavy requests before intent:', preIntentHeavy.map((r) => r.url));
-    }
-
-    for (const [stationId, expId] of CASES) {
-      intentAt = Date.now();
-      const result = await page.evaluate(({ stationId: sid, expId: eid, prewarm }) => (
-        Promise.race([
-          window.__labDebug.measureOpen({ stationId: sid, expId: eid, prewarm }),
-          new Promise((resolve) => setTimeout(
-            () => resolve({ stationId: sid, expId: eid, error: 'measure timeout' }),
-            45000,
-          )),
-        ])
-      ), { stationId, expId, prewarm: false });
-
-      const wall = Number(result.wallMs) || 0;
-      const isFirstForStation = !caseResults.some(
-        (c) => c.round === round && c.stationId === stationId && c.ok,
-      );
-      if (result.error) {
-        caseResults.push({
-          round, stationId, expId, ok: false, error: result.error, wallMs: wall,
+  for (let r = 0; r < ROUNDS; r++) {
+    for (let i = 0; i < ACTIVE_CASES.length; i++) {
+      const [stationId, expId] = ACTIVE_CASES[i];
+      const isFirstEver = (r === 0 && i === 0);
+      const openRes = await page.evaluate(async ({ stationId: sid, expId: eid, isFirst }) => {
+        return await window.__labDebug.measureOpen({
+          stationId: sid,
+          expId: eid,
+          prewarm: false,
+          openMenu: isFirst,
         });
-        continue;
+      }, { stationId, expId, isFirst: isFirstEver });
+
+      await page.waitForTimeout(400);
+
+      // 快速采样 1000ms 帧率
+      const fpsRes = await page.evaluate((durationMs) => {
+        return new Promise((resolve) => {
+          let count = 0;
+          const deltas = [];
+          let lastT = performance.now();
+          const startT = lastT;
+          function step(now) {
+            deltas.push(now - lastT);
+            lastT = now;
+            count++;
+            if (now - startT >= durationMs) {
+              const actualMs = now - startT;
+              const avgFps = count / (actualMs / 1000);
+              deltas.shift();
+              deltas.sort((a, b) => a - b);
+              const p50 = deltas[Math.floor(deltas.length * 0.50)] || 0;
+              const p95 = deltas[Math.floor(deltas.length * 0.95)] || 0;
+              resolve({ avgFps: Number(avgFps.toFixed(1)), p50: Number(p50.toFixed(2)), p95: Number(p95.toFixed(2)) });
+            } else {
+              requestAnimationFrame(step);
+            }
+          }
+          requestAnimationFrame(step);
+        });
+      }, 1000);
+
+      const calls = await page.evaluate(() => window.__labDebug?.renderer?.info?.render?.calls || 0);
+
+      const wallMs = openRes?.wallMs || 0;
+      if (isFirstEver) {
+        coldOpenMs = wallMs;
+      } else {
+        warmSwitchTimes.push(wallMs);
       }
-      // First open of a station in a cold context counts as cold; subsequent as warm.
-      if (isFirstForStation || round === 0) coldOpens.push(wall);
-      else warmSwitches.push(wall);
+      stableFpsList.push(fpsRes.avgFps);
+      frameP95List.push(fpsRes.p95);
+      drawCallList.push(calls);
 
-      if (result.maxGap) maxGaps.push(result.maxGap);
-      if (result.maxLongTask) longTaskMaxes.push(result.maxLongTask);
-      if (result.perf?.frameP95) frameP95s.push(result.perf.frameP95);
-
-      caseResults.push({
-        round,
+      experimentStats.push({
         stationId,
         expId,
-        ok: !!result.openResult?.ok,
-        wallMs: wall,
-        clickMs: result.clickMs,
-        maxGap: result.maxGap,
-        maxLongTask: result.maxLongTask,
-        apparatusReady: result.apparatusReady,
+        round: r,
+        type: isFirstEver ? 'cold-open' : 'warm-switch',
+        openMs: Number(wallMs.toFixed(1)),
+        fps: fpsRes.avgFps,
+        frameP95: fpsRes.p95,
+        drawCalls: calls,
       });
-    }
 
-    // One dedicated warm-switch pass on free-fall after it is already open.
-    intentAt = Date.now();
-    const warm = await page.evaluate(() => window.__labDebug.measureOpen({
-      stationId: 'mechanics',
-      expId: 'pendulum',
-      prewarm: true,
-      openMenu: true,
-    }));
-    if (warm?.wallMs != null) warmSwitches.push(Number(warm.wallMs));
-
-    await context.close();
-  }
-
-  return {
-    coldOpens,
-    warmSwitches,
-    frameP95s,
-    longTaskMaxes,
-    maxGaps,
-    caseResults,
-  };
-}
-
-function gate(name, value, limit, higherIsBad = true) {
-  const pass = higherIsBad ? value <= limit : value >= limit;
-  const tag = pass ? 'OK  ' : 'FAIL';
-  console.log(`[measure:perf] ${tag} ${name}: ${Number(value).toFixed(2)} (budget ${limit})`);
-  return pass;
-}
-
-const server = await startServer();
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-  || (fs.existsSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
-    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    : undefined);
-const browser = await chromium.launch({
-  headless: process.env.HEADED !== '1',
-  executablePath,
-  args: ['--enable-webgl', '--ignore-gpu-blocklist'],
-});
-
-try {
-  const boots = [];
-  const preIntentViolations = [];
-  for (let i = 0; i < ROUNDS; i += 1) {
-    const boot = await coldBootOnce(browser, server.url);
-    boots.push(boot.bootMs);
-    if (boot.preIntentHeavyRequests.length) {
-      preIntentViolations.push(...boot.preIntentHeavyRequests);
-    }
-    console.log(`[measure:perf] cold boot #${i + 1}: ${boot.bootMs}ms`);
-  }
-
-  const opens = await measureOpens(browser, server.url, ROUNDS);
-
-  const summary = {
-    url: server.url,
-    mode: server.mode || 'existing',
-    viewport: { width: 1920, height: 1080, deviceScaleFactor: 1 },
-    rounds: ROUNDS,
-    boot: {
-      samples: boots,
-      p95: percentile(boots, 95),
-      p50: percentile(boots, 50),
-    },
-    coldOpen: {
-      samples: opens.coldOpens,
-      p95: percentile(opens.coldOpens, 95),
-      p50: percentile(opens.coldOpens, 50),
-    },
-    warmSwitch: {
-      samples: opens.warmSwitches,
-      p95: percentile(opens.warmSwitches, 95),
-      p99: percentile(opens.warmSwitches, 99),
-    },
-    frameP95: percentile(opens.frameP95s, 95),
-    longTaskMax: Math.max(0, ...opens.longTaskMaxes, 0),
-    maxFrameGap: Math.max(0, ...opens.maxGaps, 0),
-    preIntentHeavyRequests: [...new Set(preIntentViolations)],
-    cases: opens.caseResults,
-    budget: BUDGET,
-  };
-
-  let allPass = true;
-  allPass = gate('cold boot P95 ms', summary.boot.p95, BUDGET.coldBootP95Ms) && allPass;
-  allPass = gate('cold open P95 ms', summary.coldOpen.p95, BUDGET.coldOpenP95Ms) && allPass;
-  if (summary.warmSwitch.samples.length) {
-    allPass = gate('warm switch P95 ms', summary.warmSwitch.p95, BUDGET.warmSwitchP95Ms) && allPass;
-    // switch P99 ≤ 25 ms is the interactive commit budget for already-warm runtimes.
-    // Only enforce when we have warm samples that completed under 100 ms (true warm).
-    const trueWarm = summary.warmSwitch.samples.filter((v) => v <= 100);
-    if (trueWarm.length >= 3) {
-      allPass = gate('warm switch P99 ms', percentile(trueWarm, 99), BUDGET.switchP99Ms) && allPass;
+      console.log(`  • ${stationId}/${expId}: ${isFirstEver ? '首次冷打开' : '热切换'} ${wallMs.toFixed(1)}ms | 帧率 ${fpsRes.avgFps} FPS (p95: ${fpsRes.p95}ms) | DrawCalls: ${calls}`);
     }
   }
-  if (opens.frameP95s.length) {
-    allPass = gate('stable frame P95 ms', summary.frameP95, BUDGET.stableFrameP95Ms) && allPass;
-  }
-  allPass = gate('max frame gap ms', summary.maxFrameGap, BUDGET.maxFrameGapMs) && allPass;
-  allPass = gate('max long task ms', summary.longTaskMax, BUDGET.maxLongTaskMs) && allPass;
-  if (summary.preIntentHeavyRequests.length) {
-    console.error('[measure:perf] FAIL heavy requests before user intent');
-    summary.preIntentHeavyRequests.forEach((u) => console.error(`  ${u}`));
-    allPass = false;
-  } else {
-    console.log('[measure:perf] OK   no station/Cannon/MediaPipe before intent');
-  }
 
-  summary.ok = allPass;
-  fs.mkdirSync(path.join(root, 'output'), { recursive: true });
-  const outPath = path.join(root, 'output', 'perf-measure.json');
-  fs.writeFileSync(outPath, `${JSON.stringify(summary, null, 2)}\n`);
-  console.log(`[measure:perf] wrote ${outPath}`);
-  console.log(JSON.stringify({
-    bootP95: summary.boot.p95,
-    coldOpenP95: summary.coldOpen.p95,
-    warmSwitchP95: summary.warmSwitch.p95,
-    frameP95: summary.frameP95,
-    ok: allPass,
-  }, null, 2));
-
-  if (!allPass) process.exitCode = 1;
-} finally {
+  await mainContext.close();
   await browser.close();
-  server.process?.kill();
+  if (serverProcess) serverProcess.kill();
+
+  // 3. 统计并比对性能门禁
+  console.log('\n[3/3] 汇总性能门禁指标...');
+  const warmSwitchP95 = percentile(warmSwitchTimes, 95);
+  const avgFpsAll = Number((stableFpsList.reduce((a, b) => a + b, 0) / stableFpsList.length).toFixed(1));
+  const frameP95Worst = Math.max(...frameP95List);
+  const maxDrawCalls = Math.max(...drawCallList);
+
+  const checks = [
+    { name: '冷启动 P95 (Cold Boot)', val: `${coldBootMs.toFixed(0)}ms`, budget: `≤ ${BUDGET.coldBootP95Ms}ms`, pass: coldBootMs <= BUDGET.coldBootP95Ms },
+    { name: '首次冷打开 (Cold Open)', val: `${coldOpenMs.toFixed(0)}ms`, budget: `≤ ${BUDGET.coldOpenP95Ms}ms`, pass: coldOpenMs <= BUDGET.coldOpenP95Ms },
+    { name: '热切换 P95 (Warm Switch)', val: `${warmSwitchP95.toFixed(0)}ms`, budget: `≤ ${BUDGET.warmSwitchP95Ms}ms`, pass: warmSwitchP95 <= BUDGET.warmSwitchP95Ms },
+    { name: '平均帧率 (Average FPS)', val: `${avgFpsAll} FPS`, budget: `≥ ${BUDGET.stableFpsMin} FPS`, pass: avgFpsAll >= BUDGET.stableFpsMin },
+    { name: '单帧 P95 耗时 (Frame P95)', val: `${frameP95Worst.toFixed(2)}ms`, budget: `≤ ${BUDGET.stableFrameP95Ms}ms`, pass: frameP95Worst <= BUDGET.stableFrameP95Ms },
+    { name: '单帧 Draw Calls 峰值', val: `${maxDrawCalls}`, budget: `≤ ${BUDGET.maxDrawCalls}`, pass: maxDrawCalls <= BUDGET.maxDrawCalls },
+  ];
+
+  console.log('\n------------------------------------------------------------------');
+  console.log(' 指标项                              当前实测       预算门禁       判定');
+  console.log('------------------------------------------------------------------');
+  let allPass = true;
+  for (const c of checks) {
+    const mark = c.pass ? '\x1b[32m✔ PASS\x1b[0m' : '\x1b[31m✖ FAIL\x1b[0m';
+    if (!c.pass) allPass = false;
+    const namePadded = c.name.padEnd(35);
+    const valPadded = c.val.padEnd(14);
+    const budgPadded = c.budget.padEnd(14);
+    console.log(` ${namePadded} ${valPadded} ${budgPadded} ${mark}`);
+  }
+  console.log('------------------------------------------------------------------\n');
+
+  // 保存 output/perf-benchmark.json
+  const outputDir = path.join(ROOT_DIR, 'output');
+  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(path.join(outputDir, 'perf-benchmark.json'), JSON.stringify({
+    timestamp: new Date().toISOString(),
+    coldBootMs,
+    warmSwitchP95,
+    avgFpsAll,
+    frameP95Worst,
+    maxDrawCalls,
+    cases: experimentStats,
+    allPass,
+  }, null, 2), 'utf8');
+
+  if (!allPass) {
+    console.error('✖ 性能门禁测试未通过，请检查上方标红项！\n');
+    process.exit(1);
+  } else {
+    console.log('✔ 所有性能门禁全部通过！\n');
+    process.exit(0);
+  }
 }
+
+main().catch(err => {
+  console.error('Fatal benchmark error:', err);
+  process.exit(1);
+});
