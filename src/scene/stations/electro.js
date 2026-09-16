@@ -423,28 +423,18 @@ function createFullStationEquipment(ctx) {
     };
     solWindMat.customProgramCacheKey = () => 'hall-solenoid-wind-aa-v5';
 
-    // High-performance clean cylinder geometry — winding detail is procedurally shaded with anti-aliasing
-    function makeSolenoidWindGeometry(turns, length = 1.04, radius = 0.063) {
+    // High-performance clean cylinder geometry — winding detail is procedurally shaded with anti-aliasing (fixed 100 turns)
+    function makeSolenoidWindGeometry(length = 1.04, radius = 0.063) {
       const heightSegs = 16;
       const radialSegs = 32;
       return new THREE.CylinderGeometry(radius, radius, length, radialSegs, heightSegs, true);
     }
 
-    let solWindBody = new THREE.Mesh(makeSolenoidWindGeometry(100), solWindMat);
+    const solWindBody = new THREE.Mesh(makeSolenoidWindGeometry(), solWindMat);
     solWindBody.castShadow = true;
     solWindBody.receiveShadow = true;
     solWindBody.rotation.z = Math.PI / 2;
     hallSolenoid.add(solWindBody);
-
-    let lastHallTurns = -1;
-    function setHallSolenoidTurns(turns) {
-      const count = Math.round(THREE.MathUtils.clamp(Number(turns || 2340), 10, 5000));
-      if (count === lastHallTurns) return;
-      lastHallTurns = count;
-      // Full N in procedural shader
-      solWindUniforms.uTurns.value = count;
-    }
-    setHallSolenoidTurns(2340);
 
     const solenoidSupportMat = new THREE.MeshStandardMaterial({
       color: 0x20282b,
@@ -2052,7 +2042,6 @@ function createFullStationEquipment(ctx) {
         hallProbe.position.x = THREE.MathUtils.clamp(-0.12 + probeM * scale, -0.65, 0.65);
         probeXLabel.update(probeM, false);
       }
-      setHallSolenoidTurns(d.turns);
       const energy = d.wiring?.energized
         ? THREE.MathUtils.clamp(Number(d.Im || 0), 0, 1)
         : 0;
