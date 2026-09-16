@@ -350,6 +350,93 @@ test('inner field lines have fixed spatial coordinates, expanding R reveals more
   });
 });
 
+test('induced electric field line density strictly increases with |dB/dt| (denser) and decreases with smaller |dB/dt| (sparser)', async () => {
+  const { computeInducedFieldRingRadii, MAX_E_RINGS } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+  const R = 2.0;
+
+  // 1. Zero / negligible dB/dt produces zero field lines
+  assert.deepEqual(computeInducedFieldRingRadii(R, 0), []);
+  assert.deepEqual(computeInducedFieldRingRadii(R, 0.01), []);
+  assert.deepEqual(computeInducedFieldRingRadii(R, -0.01), []);
+
+  // 2. Monotonic increase in density across rates
+  const rates = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0, 4.5, 6.0];
+  let prevCount = 0;
+  let prevInAvgGap = Infinity;
+
+  rates.forEach((rate) => {
+    const positiveRadii = computeInducedFieldRingRadii(R, rate);
+    const negativeRadii = computeInducedFieldRingRadii(R, -rate);
+
+    // Magnitude only drives density: positive and negative rates give identical radii
+    assert.deepEqual(positiveRadii, negativeRadii, 'Field line radii must depend only on |dB/dt|');
+
+    // Never exceed the hardware ring pool
+    assert.ok(positiveRadii.length <= MAX_E_RINGS, `Rings count ${positiveRadii.length} must not exceed ${MAX_E_RINGS}`);
+
+    // Count increases monotonically with rate
+    assert.ok(
+      positiveRadii.length >= prevCount,
+      `Rate ${rate} count (${positiveRadii.length}) should be >= previous count (${prevCount})`,
+    );
+
+    // Inner ring spacing decreases monotonically with rate (denser field lines)
+    const inRadii = positiveRadii.filter((r) => r <= R);
+    const inAvgGap = inRadii.length > 1 ? (inRadii[inRadii.length - 1] - inRadii[0]) / (inRadii.length - 1) : Infinity;
+    assert.ok(
+      inAvgGap <= prevInAvgGap + 1e-4,
+      `Rate ${rate} inner avg gap (${inAvgGap.toFixed(3)}) should be <= previous (${prevInAvgGap.toFixed(3)})`,
+    );
+
+    prevCount = positiveRadii.length;
+    prevInAvgGap = inAvgGap;
+  });
+
+  // Specifically verify contrast between small rate (0.2) and large rate (6.0)
+  const sparseRings = computeInducedFieldRingRadii(R, 0.2);
+  const denseRings = computeInducedFieldRingRadii(R, 6.0);
+  assert.ok(
+    denseRings.length > sparseRings.length * 2,
+    `Dense rings count (${denseRings.length}) should be much higher than sparse rings count (${sparseRings.length})`,
+  );
+  const sparseAvgGap = (sparseRings[sparseRings.length - 1] - sparseRings[0]) / (sparseRings.length - 1);
+  const denseAvgGap = (denseRings[denseRings.length - 1] - denseRings[0]) / (denseRings.length - 1);
+  assert.ok(
+    denseAvgGap < sparseAvgGap * 0.5,
+    `Dense avg gap (${denseAvgGap.toFixed(3)}) should be much smaller than sparse avg gap (${sparseAvgGap.toFixed(3)})`,
+  );
+});
+
+test('handles upper limit conditions: field lines never overcrowd and outer rings are never starved at extreme |dB/dt| and R', async () => {
+  const { computeInducedFieldRingRadii, MAX_E_RINGS } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+
+  // 1. User screenshot case: R = 2.46, dB/dt = -6.25 (extreme negative rate on desk slider)
+  const userCase = computeInducedFieldRingRadii(2.46, -6.25);
+  const inUser = userCase.filter((r) => r <= 2.46);
+  const outUser = userCase.filter((r) => r > 2.46);
+
+  assert.ok(inUser.length >= 8 && inUser.length <= 16, `Inner rings count (${inUser.length}) must be well balanced`);
+  assert.ok(outUser.length >= 4, `Outer rings (${outUser.length}) must NOT be starved at extreme rate`);
+  assert.ok(userCase.length <= MAX_E_RINGS, `Total rings (${userCase.length}) must not exceed MAX_E_RINGS (${MAX_E_RINGS})`);
+
+  // Ensure minimum gap between adjacent inner rings is safe so arrows never collide
+  for (let i = 0; i < inUser.length - 1; i += 1) {
+    const gap = inUser[i + 1] - inUser[i];
+    assert.ok(gap >= 0.08, `Inner gap ${gap.toFixed(4)} at index ${i} must be >= 0.08 source units`);
+  }
+
+  // 2. Absolute maximum R = 3.0 and maximum rate dB/dt = +6.25
+  const maxCase = computeInducedFieldRingRadii(3.0, 6.25);
+  const inMax = maxCase.filter((r) => r <= 3.0);
+  const outMax = maxCase.filter((r) => r > 3.0);
+
+  assert.ok(inMax.length >= 8 && inMax.length <= 20, `Inner rings (${inMax.length}) must be bounded`);
+  assert.ok(outMax.length >= 3, `Outer rings (${outMax.length}) must be present at maximum boundary`);
+  assert.ok(maxCase.length <= MAX_E_RINGS, `Max total rings (${maxCase.length}) must not exceed MAX_E_RINGS (${MAX_E_RINGS})`);
+  assert.ok(outMax[outMax.length - 1] >= 4.0, `Outer rings must extend across the outer disk: ${outMax[outMax.length - 1]}`);
+});
+
+
 
 
 

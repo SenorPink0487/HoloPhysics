@@ -7,7 +7,7 @@ import {
 import { formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 
 const WORLD_PER_SOURCE = 0.13;
-export const MAX_E_RINGS = 24;
+export const MAX_E_RINGS = 28;
 const E_MARKERS_PER_RING = 8;
 
 /**
@@ -39,29 +39,62 @@ export const FIXED_INNER_RADII = Object.freeze([
   3.02,  // Δ = 0.11
 ]);
 
+export const EXTENDED_INNER_RADII = Object.freeze([
+  ...FIXED_INNER_RADII,
+  3.128, 3.234, 3.338, 3.440, 3.540,
+]);
+
+/**
+ * 间距缩放因子随 |dB/dt| 变化（兼顾上限防拥挤与下限稀疏对比）：
+ * - 考虑上限情况：当 |dB/dt| 达到滑块极大值（如 6.25 T/s）时，缩放因子受到保护（~0.78），
+ *   确保内圈场线不会压缩至箭头相互重叠拥挤，且外圈始终保有充裕的显示圈数席位；
+ * - 当 |dB/dt| 较低时，缩放因子平滑放大，呈现明显稀疏的场线对比；
+ * - 基准率 2.0 T/s 时精确为 1.0，完全维持原有空间坐标基准。
+ */
+export function inducedFieldSpacingScale(rateD) {
+  const absRate = Math.abs(Number(rateD || 0));
+  if (absRate < 0.02) return 0;
+  if (Math.abs(absRate - 2.0) < 1e-5) return 1.0;
+  const clampedD = Math.max(0.15, Math.min(6.25, absRate));
+  return Math.pow(2.0 / clampedD, 0.22);
+}
+
 export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
   const absRate = Math.abs(Number(rateD || 0));
   if (absRate < 0.02) return [];
 
   const safeR = Math.max(0.6, Math.min(3.2, Number(regionR || 2)));
-  const margin = 0.06;
+  const scale = inducedFieldSpacingScale(absRate);
+  if (scale <= 0) return [];
 
-  // 1. 内圈 (r < R)：坐标固定确定，仅改变展示范围；增大 R 展现更多内圈线，间距向外递减
-  const inRadii = FIXED_INNER_RADII.filter((r) => r <= safeR - margin);
-  if (inRadii.length === 0 && FIXED_INNER_RADII[0] < safeR) {
-    inRadii.push(FIXED_INNER_RADII[0]);
+  const margin = 0.06 * scale;
+
+  // 1. 内圈 (r < R)：间距向外严格递减（E ∝ r，越靠外场强越强，场线越密）；
+  //    受上限保护约束，相邻圈之间留有充足净距，避免切向箭头与线条重叠成团。
+  const inRadii = [];
+  for (let i = 0; i < EXTENDED_INNER_RADII.length; i += 1) {
+    const r = Number((EXTENDED_INNER_RADII[i] * scale).toFixed(4));
+    if (r <= safeR - margin) {
+      inRadii.push(r);
+    } else {
+      break;
+    }
+  }
+  if (inRadii.length === 0 && EXTENDED_INNER_RADII[0] * scale < safeR) {
+    inRadii.push(Number((EXTENDED_INNER_RADII[0] * scale).toFixed(4)));
   }
 
-  // 2. 外圈 (r > R)：随着分割圈 R 和最靠近分割圈的内圈线动态生成
+  // 2. 外圈 (r > R)：随着分割圈 R 和最靠近分割圈的内圈线动态生成，向外 E ∝ 1/r 逐渐稀疏。
+  //    上限保护确保无论内圈多密，外圈始终有充足席位延伸至工作盘边缘，绝不被挤空。
   const lastIn = inRadii.length > 0 ? inRadii[inRadii.length - 1] : safeR * 0.5;
-  const innerFirstGap = Math.max(0.06, safeR - lastIn);
+  const innerFirstGap = Math.max(0.06 * scale, safeR - lastIn);
 
   const outRadii = [];
   let currOut = safeR + innerFirstGap;
   let currStep = innerFirstGap;
-  const stepRatio = 1.42;
+  const stepRatio = 1.38;
 
-  while (currOut <= Rdisk) {
+  while (currOut <= Rdisk && (inRadii.length + outRadii.length) < MAX_E_RINGS) {
     outRadii.push(Number(currOut.toFixed(4)));
     currStep = currStep * stepRatio;
     currOut += currStep;
@@ -612,10 +645,14 @@ export function createInducedElectricFieldEquipment() {
         const relStrength = THREE.MathUtils.clamp(mag / maxMag, 0, 1);
         mat.opacity = eOpacityBase * THREE.MathUtils.lerp(0.65, 0.95, relStrength);
 
-        const arrowScale = THREE.MathUtils.lerp(0.80, 1.10, relStrength);
+        const scale = inducedFieldSpacingScale(absD);
+        const densityFactor = THREE.MathUtils.clamp(scale || 1.0, 0.85, 1.05);
+        const arrowScale = THREE.MathUtils.lerp(0.75, 1.05, relStrength) * densityFactor;
+        // 小半径内圈周长较短，减少箭头数量（四向分布），防止小圆周上箭头首尾相撞拥挤
+        const stride = sourceR < 0.68 ? 2 : 1;
 
-        markers.forEach(({ marker, phase }) => {
-          if (sense === 'none' || mag < 1e-5) {
+        markers.forEach(({ marker, phase }, k) => {
+          if (sense === 'none' || mag < 1e-5 || (k % stride !== 0)) {
             marker.visible = false;
             return;
           }
