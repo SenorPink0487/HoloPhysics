@@ -160,16 +160,10 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
+  let lastUpdateAt = 0;
+  let pendingQE = null;
 
-  function setQE(qText, eText, accent = '#fde68a', rText = null, fText = null) {
-    const key = `${accent}|${qText}|${eText}|${rText || ''}|${fText || ''}`;
-    if (key === lastKey) return;
-    lastKey = key;
-    sprite.userData.hudKey = key;
-    sprite.userData.qText = qText;
-    sprite.userData.eText = eText;
-    sprite.userData.rText = rText;
-    sprite.userData.fText = fText;
+  function renderQE(qText, eText, accent, rText, fText) {
     const W = canvas.width;
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
@@ -204,7 +198,36 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     texture.needsUpdate = true;
   }
 
-  return { sprite, setQE };
+  function setQE(qText, eText, accent = '#fde68a', rText = null, fText = null, force = false) {
+    const key = `${accent}|${qText}|${eText}|${rText || ''}|${fText || ''}`;
+    if (key === lastKey) return;
+    sprite.userData.hudKey = key;
+    sprite.userData.qText = qText;
+    sprite.userData.eText = eText;
+    sprite.userData.rText = rText;
+    sprite.userData.fText = fText;
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!force && (now - lastUpdateAt < 60)) {
+      pendingQE = { qText, eText, accent, rText, fText };
+      return;
+    }
+    lastUpdateAt = now;
+    pendingQE = null;
+    lastKey = key;
+    renderQE(qText, eText, accent, rText, fText);
+  }
+
+  function flushPendingQE() {
+    if (!pendingQE) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - lastUpdateAt >= 60) {
+      const p = pendingQE;
+      setQE(p.qText, p.eText, p.accent, p.rText, p.fText, true);
+    }
+  }
+
+  return { sprite, setQE, flushPending: flushPendingQE };
 }
 
 /**
@@ -745,6 +768,7 @@ export function createInducedElectricFieldEquipment() {
       } else {
         forceArrow.visible = false;
       }
+      probeHud.flushPending?.();
     }
     if (showProbe !== lastShowProbe) {
       probeGroup.visible = showProbe;

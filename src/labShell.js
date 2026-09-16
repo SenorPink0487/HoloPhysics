@@ -350,7 +350,7 @@ function getLabViewportSize() {
 }
 
 function getLabPixelRatio(requested = window.devicePixelRatio || 1) {
-  return Math.max(0.5, Number(requested) || 1);
+  return Math.min(1.5, Math.max(0.5, Number(requested) || 1));
 }
 
 function clearCanvasInlineSize() {
@@ -811,10 +811,12 @@ const sun2 = new THREE.DirectionalLight(0xc4e4ff, 0.45);
 sun2.position.set(-8, 10, -4);
 scene.add(sun2);
 
-function addCeilingLight(x, z, w = 2.8, intensity = 5) {
-  const light = new THREE.PointLight(0xe8f4ff, 1.0, 10, 1.2);
-  light.position.set(x, 3.6, z);
-  scene.add(light);
+function addCeilingLight(x, z, w = 2.8, intensity = 1.0, withPointLight = true) {
+  if (withPointLight) {
+    const light = new THREE.PointLight(0xe8f4ff, intensity, 12, 1.2);
+    light.position.set(x, 3.6, z);
+    scene.add(light);
+  }
 
   const g = new THREE.Group();
   g.position.set(x, 3.85, z);
@@ -832,11 +834,12 @@ function addCeilingLight(x, z, w = 2.8, intensity = 5) {
   scene.add(g);
 }
 
-addCeilingLight(-3.8, -2.2);
-addCeilingLight(3.8, -2.2);
-addCeilingLight(-3.8, 2.5);
-addCeilingLight(3.8, 2.5);
-addCeilingLight(0, 0, 3.5, 4);
+addCeilingLight(-3.8, -2.2, 2.8, 0, false);
+addCeilingLight(3.8, -2.2, 2.8, 0, false);
+addCeilingLight(-3.8, 2.5, 2.8, 0, false);
+addCeilingLight(3.8, 2.5, 2.8, 0, false);
+addCeilingLight(0, 0, 3.5, 2.2, true);
+
 
 // accent point lights
 const accents = [
@@ -1977,27 +1980,32 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     metalness: 0.2,
     roughness: 0.3,
   });
-  const ledRing = torus(0.165, 0.0035, ledMat, 8, 64);
+  const ledRing = torus(0.165, 0.0035, ledMat, 6, 24);
+  ledRing.castShadow = false;
   ledRing.rotation.x = Math.PI / 2;
   ledRing.position.y = 0.019;
   pedestalG.add(ledRing);
 
   // 3. Precision Anodized Alloy Stepped Collar
-  const plate = cyl(0.125, 0.138, 0.014, mat.silver, 48);
+  const plate = cyl(0.125, 0.138, 0.014, mat.silver, 24);
+  plate.castShadow = false;
   plate.position.y = 0.024;
   pedestalG.add(plate);
 
-  const ring = torus(0.125, 0.003, mat.chrome, 8, 48);
+  const ring = torus(0.125, 0.003, mat.chrome, 6, 24);
+  ring.castShadow = false;
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.031;
   pedestalG.add(ring);
 
   // 4. Mirror Chrome Optical Emitter Nozzle & Dark Glass Well
-  const emitter = cyl(0.075, 0.060, 0.018, mat.chrome, 32);
+  const emitter = cyl(0.075, 0.060, 0.018, mat.chrome, 20);
+  emitter.castShadow = false;
   emitter.position.y = 0.038;
   pedestalG.add(emitter);
 
-  const innerWell = cyl(0.055, 0.055, 0.004, mat.darkGlass, 32);
+  const innerWell = cyl(0.055, 0.055, 0.004, mat.darkGlass, 20);
+  innerWell.castShadow = false;
   innerWell.position.y = 0.044;
   pedestalG.add(innerWell);
 
@@ -2011,7 +2019,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     transparent: true,
     opacity: 0.95,
   });
-  const core = sphere(0.024, coreMat, 32);
+  const core = sphere(0.024, coreMat, 12);
+  core.castShadow = false;
   core.position.y = 0.068;
   pedestalG.add(core);
 
@@ -2026,7 +2035,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     depthWrite: false,
     toneMapped: false,
   });
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.46, 0.72, 32, 1, true), coneMat);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.46, 0.72, 20, 1, true), coneMat);
   cone.position.y = 0.46;
   cone.rotation.x = Math.PI;
   g.add(cone);
@@ -2058,6 +2067,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
       toneMapped: false,
     });
     const wr = torus(0.1, 0.0018, rm, 4, 48);
+    wr.castShadow = false;
     wr.rotation.x = Math.PI / 2;
     g.add(wr);
     waveRings.push({ mesh: wr, mat: rm, phase: i / 4 });
@@ -2134,6 +2144,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.screenFaces = [front, backFace];
 
   const holoLight = new THREE.PointLight(accentNum, 0, 3.2, 2);
+  holoLight.visible = false;
   holoLight.position.set(0, 0.65, 0);
   g.add(holoLight);
 
@@ -2383,6 +2394,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
       beam.visible = false;
       waveRings.forEach((r) => { r.mesh.visible = false; });
       holoLight.intensity = 0;
+      holoLight.visible = false;
       // Soft standby breathing on the pedestal
       const idlePulse = Math.sin(t * 1.8);
       coreMat.emissiveIntensity = 0.35 + 0.12 * idlePulse;
@@ -2394,6 +2406,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     cone.visible = true;
     beam.visible = true;
     waveRings.forEach((r) => { r.mesh.visible = true; });
+    holoLight.visible = true;
 
     // Smoothstep / S-curve ease for cinematic deployment
     const ease = currentReveal * currentReveal * (3 - 2 * currentReveal);
@@ -2573,6 +2586,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   g.add(hit);
 
   const panelLight = new THREE.PointLight(0xf8fafc, 0, 4.5, 2);
+  panelLight.visible = false;
   panelLight.position.set(0, 0, 0.35);
   g.add(panelLight);
 
@@ -2690,6 +2704,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
     g.userData.active = present;
     g.visible = present;
     panelLight.intensity = present ? 0.55 : 0;
+    panelLight.visible = present;
     if (!present) {
       screenRegistry?.release?.(stationId);
       hitRegions = [];
@@ -5335,32 +5350,41 @@ function getAimedDeskSlider(rc) {
   if (!rc) return null;
   const presentPanels = Object.values(deskSliderPanels).filter((p) => p?.userData?.present);
   if (!presentPanels.length) return null;
-  const hits = rc.intersectObjects(presentPanels, true);
-  if (!hits.length) return null;
-  const deskHost = resolveDeskSliderHost(hits[0].object);
-  if (!deskHost?.userData?.present) return null;
-  const pick = deskHost.userData.pickFromRay?.(rc);
-  if (!isDeskPanelPick(pick)) return null;
-  return {
-    target: deskHost,
-    hit: { object: deskHost, distance: Number(hits[0].distance) || 0 },
-    pick,
-  };
+  let best = null;
+  let bestDist = Infinity;
+  for (const deskHost of presentPanels) {
+    const pick = deskHost.userData.pickFromRay?.(rc);
+    if (isDeskPanelPick(pick)) {
+      const dist = rc.ray.origin.distanceTo(deskHost.position);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = {
+          target: deskHost,
+          hit: { object: deskHost, distance: dist },
+          pick,
+        };
+      }
+    }
+  }
+  return best;
 }
 
 const _lastFocusCamPos = new THREE.Vector3();
 const _lastFocusCamQuat = new THREE.Quaternion();
 let _cachedFocusTarget = undefined;
 let _cachedFocusHit = null;
+let _focusThrottleFrame = 0;
 
 function getFocusTarget(inputRaycaster = raycaster) {
   if (inputRaycaster === raycaster) {
     inputRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const posUnchanged = camera.position.distanceToSquared(_lastFocusCamPos) < 1e-6;
     const quatUnchanged = Math.abs(camera.quaternion.dot(_lastFocusCamQuat)) > 0.999999;
-    if (posUnchanged && quatUnchanged && !expManager?.state?.running && _cachedFocusTarget !== undefined) {
-      lastFocusHit = _cachedFocusHit;
-      return _cachedFocusTarget;
+    if (posUnchanged && quatUnchanged && _cachedFocusTarget !== undefined) {
+      if (!expManager?.state?.running || (++_focusThrottleFrame % 4 !== 0)) {
+        lastFocusHit = _cachedFocusHit;
+        return _cachedFocusTarget;
+      }
     }
     _lastFocusCamPos.copy(camera.position);
     _lastFocusCamQuat.copy(camera.quaternion);
@@ -6612,6 +6636,7 @@ function animate(tickTime = performance.now()) {
     || new URLSearchParams(window.location.search).has('trace')
     || new URLSearchParams(window.location.search).has('measure')
   );
+  const frameTraceStart = traceFrames ? performance.now() : 0;
   performanceGovernor.beginFrame(performance.now());
   renderer.info.reset?.();
   const arActive = !!handTracking?.isActive();

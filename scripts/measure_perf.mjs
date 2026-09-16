@@ -253,7 +253,15 @@ function gate(name, value, limit, higherIsBad = true) {
 }
 
 const server = await startServer();
-const browser = await chromium.launch({ headless: process.env.HEADED !== '1' });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  || (fs.existsSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : undefined);
+const browser = await chromium.launch({
+  headless: process.env.HEADED !== '1',
+  executablePath,
+  args: ['--enable-webgl', '--ignore-gpu-blocklist'],
+});
 
 try {
   const boots = [];

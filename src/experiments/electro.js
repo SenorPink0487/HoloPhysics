@@ -727,7 +727,7 @@ export function createHandlers(ctx) {
 
     if (expId === 'electric_field') {
       // Only re-trace when charges / visibility flags change (avoid thrash).
-      const sig = `${(state.data.charges || []).map((c) => `${c.id}:${c.q}:${c.x}:${c.y}:${c.z}`).join(';')}|L${state.data.showLines !== false ? 1 : 0}|A${state.data.showArrows !== false ? 1 : 0}`;
+      const sig = `${(state.data.charges || []).map((c) => `${c.id}:${c.q}:${(c.x).toFixed(2)}:${(c.y).toFixed(2)}:${(c.z).toFixed(2)}`).join(';')}|L${state.data.showLines !== false ? 1 : 0}|A${state.data.showArrows !== false ? 1 : 0}`;
       if (sig === state.data._simFieldSig) {
         // Pull any deferred worker snapshot that completed after last step.
         if (backend.generation !== lastAppliedGeneration) {
@@ -735,6 +735,11 @@ export function createHandlers(ctx) {
         }
         return;
       }
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      if (state.data._lastSimTraceTime && (now - state.data._lastSimTraceTime < 60)) {
+        return;
+      }
+      state.data._lastSimTraceTime = now;
       state.data._simFieldSig = sig;
       syncSimParams(state.data);
     } else {

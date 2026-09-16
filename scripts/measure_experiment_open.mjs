@@ -11,6 +11,7 @@
  *   LAB_COLD=1 LAB_ROUNDS=3 node scripts/measure_experiment_open.mjs all
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -92,7 +93,15 @@ function percentile(values, p) {
 
 const targetCases = selectedCases(process.argv[2]);
 const server = await startDevServer();
-const browser = await chromium.launch({ headless: process.env.HEADED !== '1' });
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  || (fs.existsSync('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : undefined);
+const browser = await chromium.launch({
+  headless: process.env.HEADED !== '1',
+  executablePath,
+  args: ['--enable-webgl', '--ignore-gpu-blocklist'],
+});
 const consoleErrors = [];
 const allResults = [];
 const bootRequests = [];

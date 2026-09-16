@@ -477,7 +477,7 @@ export function createDeskSliderPanel({
       trackMat.clone(),
     );
     track.position.set(0, baseH + TRACK_H / 2 + 0.005, ROW_H * 0.18);
-    track.castShadow = true;
+    track.castShadow = false;
     row.add(track);
 
     const fill = new THREE.Mesh(
@@ -559,7 +559,7 @@ export function createDeskSliderPanel({
       btnMat.clone(),
     );
     minusBody.position.y = baseH + BTN_H / 2 + 0.003;
-    minusBody.castShadow = true;
+    minusBody.castShadow = false;
     btnMinus.add(minusBody);
 
     const minusFace = new THREE.Mesh(
@@ -581,7 +581,7 @@ export function createDeskSliderPanel({
       btnMat.clone(),
     );
     plusBody.position.y = baseH + BTN_H / 2 + 0.003;
-    plusBody.castShadow = true;
+    plusBody.castShadow = false;
     btnPlus.add(plusBody);
 
     const plusFace = new THREE.Mesh(
@@ -748,9 +748,16 @@ export function createDeskSliderPanel({
     const valueText = formatValue(value, digits, unit);
     const headerKey = `${labelText}|${valueText}`;
     if (slot._headerKey !== headerKey) {
-      slot._headerKey = headerKey;
-      renderHeaderCanvas(slot.headerCanvas, slot.headerCtx, labelText, valueText, accentHex);
-      slot.headerTex.needsUpdate = true;
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      if (!slot._lastHeaderAt || (now - slot._lastHeaderAt >= 60)) {
+        slot._headerKey = headerKey;
+        slot._lastHeaderAt = now;
+        slot._pendingHeader = null;
+        renderHeaderCanvas(slot.headerCanvas, slot.headerCtx, labelText, valueText, accentHex);
+        slot.headerTex.needsUpdate = true;
+      } else {
+        slot._pendingHeader = { labelText, valueText, headerKey };
+      }
     }
   }
 
@@ -778,6 +785,10 @@ export function createDeskSliderPanel({
       slot.spec = spec;
       if (!spec) {
         slot.row.visible = false;
+        slot.actionPlane.visible = false;
+        setRangePartsVisible(slot, false);
+        slot.value = 0;
+        slot._headerKey = '';
         continue;
       }
       slot.row.visible = true;
@@ -795,9 +806,17 @@ export function createDeskSliderPanel({
 
   function syncValues(getValue) {
     if (typeof getValue !== 'function') return;
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     for (let i = 0; i < activeCount; i += 1) {
       const slot = slots[i];
       if (!slot.spec || slot.spec.kind === 'action' || slot.spec.kind === 'actionGroup') continue;
+      if (slot._pendingHeader && (now - (slot._lastHeaderAt || 0) >= 60)) {
+        slot._headerKey = slot._pendingHeader.headerKey;
+        slot._lastHeaderAt = now;
+        renderHeaderCanvas(slot.headerCanvas, slot.headerCtx, slot._pendingHeader.labelText, slot._pendingHeader.valueText, accentHex);
+        slot.headerTex.needsUpdate = true;
+        slot._pendingHeader = null;
+      }
       const next = getValue(slot.spec, i);
       if (!Number.isFinite(next)) continue;
       if (Math.abs(next - slot.value) < 1e-6) continue;

@@ -423,44 +423,11 @@ function createFullStationEquipment(ctx) {
     };
     solWindMat.customProgramCacheKey = () => 'hall-solenoid-wind-aa-v5';
 
-    // Corrugated radial profile gives real geometric depth (still one mesh, full N)
-    function makeSolenoidWindGeometry(turns, length = 1.04, radius = 0.063, wireAmp = 0.0032) {
-      const n = Math.round(THREE.MathUtils.clamp(turns, 10, 300));
-      // ≥2 segs per turn so the sine profile is smooth; AA still handled in shader
-      const heightSegs = Math.max(48, n * 2);
-      const radialSegs = 64;
-      const geo = new THREE.CylinderGeometry(radius, radius, length, radialSegs, heightSegs, true);
-      const pos = geo.attributes.position;
-      const nor = geo.attributes.normal;
-      const v = new THREE.Vector3();
-      const rad = new THREE.Vector3();
-      for (let i = 0; i < pos.count; i++) {
-        v.fromBufferAttribute(pos, i);
-        // Local Y is axis; map to 0..1 then to phase of N turns
-        const t = THREE.MathUtils.clamp(v.y / length + 0.5, 0, 1);
-        const ang = Math.atan2(v.z, v.x);
-        const phase = t * n + ang / (Math.PI * 2);
-        const ridge = Math.cos(phase * Math.PI * 2);
-        const r = Math.hypot(v.x, v.z) || radius;
-        const r2 = radius + wireAmp * ridge;
-        const s = r2 / r;
-        v.x *= s;
-        v.z *= s;
-        pos.setXYZ(i, v.x, v.y, v.z);
-        // Approximate normal for round wire (outward + axial tilt)
-        rad.set(v.x, 0, v.z).normalize();
-        const dPhase = -Math.sin(phase * Math.PI * 2);
-        const nrm = rad
-          .clone()
-          .multiplyScalar(1)
-          .addScaledVector(new THREE.Vector3(0, 1, 0), dPhase * wireAmp * n * 0.35)
-          .normalize();
-        nor.setXYZ(i, nrm.x, nrm.y, nrm.z);
-      }
-      pos.needsUpdate = true;
-      nor.needsUpdate = true;
-      geo.computeVertexNormals();
-      return geo;
+    // High-performance clean cylinder geometry — winding detail is procedurally shaded with anti-aliasing
+    function makeSolenoidWindGeometry(turns, length = 1.04, radius = 0.063) {
+      const heightSegs = 16;
+      const radialSegs = 32;
+      return new THREE.CylinderGeometry(radius, radius, length, radialSegs, heightSegs, true);
     }
 
     let solWindBody = new THREE.Mesh(makeSolenoidWindGeometry(100), solWindMat);
@@ -474,11 +441,8 @@ function createFullStationEquipment(ctx) {
       const count = Math.round(THREE.MathUtils.clamp(Number(turns || 2340), 10, 5000));
       if (count === lastHallTurns) return;
       lastHallTurns = count;
-      // Full N in both shader and corrugated geometry
+      // Full N in procedural shader
       solWindUniforms.uTurns.value = count;
-      const prev = solWindBody.geometry;
-      solWindBody.geometry = makeSolenoidWindGeometry(count);
-      prev.dispose();
     }
     setHallSolenoidTurns(2340);
 
@@ -504,20 +468,20 @@ function createFullStationEquipment(ctx) {
       const endX = sx * 0.52;
 
       const collar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.071, 0.071, 0.03, 48, 1, true),
+        new THREE.CylinderGeometry(0.071, 0.071, 0.03, 24, 1, true),
         solenoidSupportMat,
       );
       collar.rotation.z = Math.PI / 2;
       collar.position.x = endX;
       hallSolenoid.add(collar);
 
-      const endFace = new THREE.Mesh(new THREE.CircleGeometry(0.058, 48), solenoidEndMat);
+      const endFace = new THREE.Mesh(new THREE.CircleGeometry(0.058, 24), solenoidEndMat);
       endFace.rotation.y = sx > 0 ? Math.PI / 2 : -Math.PI / 2;
       endFace.position.x = sx * 0.536;
       hallSolenoid.add(endFace);
 
       const cradle = new THREE.Mesh(
-        new THREE.TorusGeometry(0.063, 0.009, 10, 48),
+        new THREE.TorusGeometry(0.063, 0.009, 6, 20),
         solenoidSupportMat,
       );
       cradle.rotation.y = Math.PI / 2;
@@ -539,10 +503,10 @@ function createFullStationEquipment(ctx) {
     hallHelm.position.set(-0.04, 0.28, -0.02);
     function makeHallCoil(copperMat = hallLeftCopper) {
       const cg = new THREE.Group();
-      const widthTurns = 20;
-      const layerTurns = 12;
+      const widthTurns = 8;
+      const layerTurns = 5;
       const windings = new THREE.InstancedMesh(
-        new THREE.TorusGeometry(1, 0.014, 6, 48), copperMat, widthTurns * layerTurns,
+        new THREE.TorusGeometry(1, 0.014, 4, 16), copperMat, widthTurns * layerTurns,
       );
       const dummy = new THREE.Object3D();
       let idx = 0;
@@ -1456,6 +1420,8 @@ function createFullStationEquipment(ctx) {
       let fieldLastSign = 0;
       const fieldArrows = [];
       const fieldDir = new THREE.Vector3(0, 1, 0);
+      const _fieldOrigin = new THREE.Vector3();
+      const _fieldColor = new THREE.Color();
       const fieldArrowBatch = createInstancedArrowField({
         capacity: FIELD_POOL,
         length: FIELD_LEN,
@@ -1495,17 +1461,17 @@ function createFullStationEquipment(ctx) {
           * (1 - THREE.MathUtils.smoothstep(z, FIELD_Z1, FIELD_Z1 + FIELD_EDGE_FADE));
         return wx * wz;
       }
-      function applyFieldLayout(B) {
+      function applyFieldLayout(B, force = false) {
         const b = Number(B || 0);
         const absB = Math.abs(b);
         const strength = THREE.MathUtils.clamp(absB / 3, 0, 1);
         const color = b >= 0 ? 0x38bdf8 : 0xf97316;
         const sign = b >= 0 ? 1 : -1;
-        // Skip only true no-ops; every distinct B moves spacing continuously.
-        if (sign === fieldLastSign && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 1e-5) {
+        const signChanged = sign !== fieldLastSign;
+        // Skip micro-changes during animation unless forced or sign flipped
+        if (!force && !signChanged && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 0.035) {
           return;
         }
-        const signChanged = sign !== fieldLastSign;
         fieldLastB = b;
         fieldLastSign = sign;
 
@@ -1535,10 +1501,12 @@ function createFullStationEquipment(ctx) {
           // Origin at the trailing end: for ↓B the root sits higher so the tip stays above the table.
           const originY = FIELD_MID_Y - sign * (FIELD_LEN * 0.5);
           const intensity = THREE.MathUtils.clamp((baseLineOp + baseConeOp) * 0.5 * edge, 0, 1);
+          _fieldOrigin.set(OFFSET_X + x * S, originY, z * S);
+          _fieldColor.set(color).multiplyScalar(0.55 + intensity * 0.45);
           fieldArrowBatch.setArrow(i, {
-            origin: [OFFSET_X + x * S, originY, z * S],
-            direction: [0, sign, 0],
-            color: new THREE.Color(color).multiplyScalar(0.55 + intensity * 0.45),
+            origin: _fieldOrigin,
+            direction: fieldDir,
+            color: _fieldColor,
             visible: true,
           });
           arrow.lastSign = sign;
@@ -1546,7 +1514,7 @@ function createFullStationEquipment(ctx) {
         fieldArrowBatch.setCount(FIELD_POOL);
         fieldArrowBatch.commit();
       }
-      function rebuildField(B, show) {
+      function rebuildField(B, show, force = false) {
         if (!show) {
           if (fieldShowKey !== 'off') clearFieldMeshes();
           fieldShowKey = 'off';
@@ -1559,7 +1527,7 @@ function createFullStationEquipment(ctx) {
         }
         const b = Number(B || 0);
         ensureFieldAssets(b >= 0 ? 0x38bdf8 : 0xf97316, b >= 0 ? 1 : -1);
-        applyFieldLayout(B);
+        applyFieldLayout(B, force);
       }
 
       // Induced-current flow: directional arrows along the closed circuit.
@@ -1589,6 +1557,8 @@ function createFullStationEquipment(ctx) {
       let flowRodX = 4.5;
       const _loopPos = new THREE.Vector3();
       const _loopDir = new THREE.Vector3();
+      const _flowArrowPos = new THREE.Vector3();
+      const _flowArrowCol = new THREE.Color();
       const _loopPts = [
         new THREE.Vector3(),
         new THREE.Vector3(),
@@ -1641,12 +1611,20 @@ function createFullStationEquipment(ctx) {
       pathLine.visible = false;
       pathLine.raycast = () => {};
       currentGroup.add(pathLine);
+      let lastPathRodX = -999;
+      let lastPathColor = 0;
       function updatePathLine(rodX, color, active) {
         pathLine.visible = active;
         if (!active) {
           pathMat.opacity = 0;
+          lastPathRodX = -999;
           return;
         }
+        if (Math.abs(rodX - lastPathRodX) < 0.002 && color === lastPathColor) {
+          return;
+        }
+        lastPathRodX = rodX;
+        lastPathColor = color;
         const y = (Y + 0.38) * S;
         const z0 = -RAIL_Z * S;
         const z1 = RAIL_Z * S;
@@ -1663,7 +1641,6 @@ function createFullStationEquipment(ctx) {
           arr[i * 3 + 2] = corners[i][2];
         }
         pathGeo.attributes.position.needsUpdate = true;
-        pathGeo.computeBoundingSphere?.();
         pathMat.color.setHex(color);
         pathMat.opacity = 0.72;
       }
@@ -1673,6 +1650,7 @@ function createFullStationEquipment(ctx) {
         flowSense = 'none';
         pathLine.visible = false;
         pathMat.opacity = 0;
+        lastPathRodX = -999;
       }
       function buildFlow(sense, rodX) {
         if (sense === 'none') {
@@ -1683,7 +1661,11 @@ function createFullStationEquipment(ctx) {
         flowSense = sense;
         flowRodX = rodX;
         const color = sense === 'ccw' ? 0xa78bfa : 0xf472b6;
-        if (senseChanged) flowArrowBatch.setColor(0, color);
+        if (senseChanged) {
+          for (let i = 0; i < FLOW_COUNT; i += 1) {
+            flowArrowBatch.setColor(i, color);
+          }
+        }
         flowArrowBatch.setCount(FLOW_COUNT);
         updatePathLine(rodX, color, true);
       }
@@ -1739,7 +1721,7 @@ function createFullStationEquipment(ctx) {
         const update = (formula, textColor = '#38bdf8', force = false) => {
           if (formula === lastFormula && textColor === lastColor) return;
           const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-          if (!force && (now - lastUpdateAt < 40)) {
+          if (!force && (now - lastUpdateAt < 100)) {
             pendingFormula = formula;
             pendingColor = textColor;
             return;
@@ -1782,26 +1764,22 @@ function createFullStationEquipment(ctx) {
           rodXLabel.flush();
           areaFluxLabel.flush();
         }
-        rebuildField(Number(data?.B || 0), data?.showField !== false);
+        rebuildField(Number(data?.B || 0), data?.showField !== false, dt === 0);
         buildFlow(data?.currentSense || 'none', x);
         if (flowSense !== 'none') {
           const dirSign = flowSense === 'ccw' ? 1 : -1;
           // ~0.55–0.95 rev/s so motion reads immediately while dragging/sliding B.
           const speed = 0.55 * Math.max(0.85, Math.min(1.7, 1 + Math.abs(Number(data?.B || 0)) * 0.08));
-          flowRodX = x;
-          const color = flowSense === 'ccw' ? 0xa78bfa : 0xf472b6;
-          updatePathLine(flowRodX, color, true);
           const step = dirSign * speed * Math.max(0, Number(dt || 0));
           for (let i = 0; i < FLOW_COUNT; i += 1) {
             progress[i] = ((progress[i] + step) % 1 + 1) % 1;
             loopSample(progress[i], flowRodX, _loopPos, _loopDir);
             // Flow direction: reverse geometric tangent when current is CW.
             if (dirSign < 0) _loopDir.negate();
-            const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(progress[i] * Math.PI * 2 * 3 + i * 0.7));
+            _flowArrowPos.copy(_loopPos).addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35);
             flowArrowBatch.setArrow(i, {
-              origin: _loopPos.clone().addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35),
+              origin: _flowArrowPos,
               direction: _loopDir,
-              color: new THREE.Color(color).multiplyScalar(0.7 + 0.3 * pulse),
               visible: true,
             });
           }
