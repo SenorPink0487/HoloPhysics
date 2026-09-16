@@ -137,6 +137,20 @@ export function formatPhysicsHtml(message) {
   return html;
 }
 
+/**
+ * 校验弹窗提示是否为“记录数据”相关提示。
+ * 按照要求：除了记录数据的提示，其他时候不展示该浮层弹窗。
+ * @param {string} message
+ * @returns {boolean}
+ */
+export function isRecordToast(message) {
+  if (!message || typeof message !== 'string') return false;
+  // 排除清空记录、错误/前置警告（如至少记录/暂无记录）以及返回/导航等非记录操作
+  if (/清空|暂无|至少|返回|模式|指南|重试|退出|打开|关闭/.test(message)) return false;
+  // 匹配明确的数据记录提示或完成物理测量记录的数据反馈
+  return /已记录|记录第|记录数据|记录读数|记录成功|测量完成/.test(message);
+}
+
 function findMatchingBrace(str, openIndex) {
   if (str[openIndex] !== '{') return -1;
   let depth = 0;

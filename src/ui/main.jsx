@@ -1,4 +1,4 @@
-import { formatPhysicsHtml } from '../physicsFormula.js';
+import { formatPhysicsHtml, isRecordToast } from '../physicsFormula.js';
 
 let bridge = null;
 let state = {
@@ -90,6 +90,10 @@ export function updateHud() {}
 
 export function updateToast(message) {
   const node = ensureNode('toast');
+  if (message && !isRecordToast(message)) {
+    node.classList.remove('show');
+    return;
+  }
   node.innerHTML = message ? formatPhysicsHtml(message) : '';
   node.classList.toggle('show', !!message);
 }

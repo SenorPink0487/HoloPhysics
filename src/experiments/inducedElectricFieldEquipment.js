@@ -55,8 +55,13 @@ export function inducedFieldSpacingScale(rateD) {
   const absRate = Math.abs(Number(rateD || 0));
   if (absRate < 0.02) return 0;
   if (Math.abs(absRate - 2.0) < 1e-5) return 1.0;
-  const clampedD = Math.max(0.15, Math.min(6.25, absRate));
-  return Math.pow(2.0 / clampedD, 0.22);
+  if (absRate >= 2.0) {
+    const clampedUpper = Math.min(6.25, absRate);
+    return Math.pow(2.0 / clampedUpper, 0.22);
+  }
+  // absRate < 2.0：放开下限（至0.02），采用更敏感的幂律响应，使小变化率（弱场）下真正呈现稀疏空旷的场线
+  const clampedLower = Math.max(0.02, absRate);
+  return Math.pow(2.0 / clampedLower, 0.35);
 }
 
 export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
@@ -80,18 +85,26 @@ export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
       break;
     }
   }
-  if (inRadii.length === 0 && EXTENDED_INNER_RADII[0] * scale < safeR) {
-    inRadii.push(Number((EXTENDED_INNER_RADII[0] * scale).toFixed(4)));
+  // 保证弱场下内圈始终至少有 1 圈代表性场线，展现感生电场的旋度取向
+  if (inRadii.length === 0) {
+    const fallbackR = Number(Math.min(safeR * 0.65, EXTENDED_INNER_RADII[0] * scale).toFixed(4));
+    if (fallbackR < safeR) {
+      inRadii.push(fallbackR);
+    }
   }
 
   // 2. 外圈 (r > R)：随着分割圈 R 和最靠近分割圈的内圈线动态生成，向外 E ∝ 1/r 逐渐稀疏。
-  //    上限保护确保无论内圈多密，外圈始终有充足席位延伸至工作盘边缘，绝不被挤空。
+  //    上限保护确保无论内圈多密，外圈始终有充足席位延伸至工作盘边缘，绝不被挤空；
+  //    在弱场下，外圈后续步长与内圈步长保持协调，杜绝外圈在低变化率下反常聚簇。
   const lastIn = inRadii.length > 0 ? inRadii[inRadii.length - 1] : safeR * 0.5;
+  const innerStep = inRadii.length > 1
+    ? inRadii[inRadii.length - 1] - inRadii[inRadii.length - 2]
+    : safeR - lastIn;
   const innerFirstGap = Math.max(0.06 * scale, safeR - lastIn);
 
   const outRadii = [];
   let currOut = safeR + innerFirstGap;
-  let currStep = innerFirstGap;
+  let currStep = scale > 1.0 ? Math.max(innerFirstGap, innerStep) : innerFirstGap;
   const stepRatio = 1.38;
 
   while (currOut <= Rdisk && (inRadii.length + outRadii.length) < MAX_E_RINGS) {

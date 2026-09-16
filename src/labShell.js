@@ -23,7 +23,7 @@ import {
   updateToast,
   updateTutorial,
 } from './ui/main.jsx';
-import { formatPhysicsHtml } from './physicsFormula.js';
+import { formatPhysicsHtml, isRecordToast } from './physicsFormula.js';
 import { labFrameScheduler } from './frameBudget.js';
 import { createStationPresence } from './runtime/stationPresence.js';
 import { labOpenTiming } from './runtime/openTiming.js';
@@ -3205,9 +3205,10 @@ function getActiveToastElement() {
 }
 
 function showToast(msg) {
+  if (!msg || !isRecordToast(msg)) return;
   const el = getActiveToastElement();
   if (el) {
-    el.innerHTML = msg ? formatPhysicsHtml(msg) : '';
+    el.innerHTML = formatPhysicsHtml(msg);
     el.classList.remove('pulse');
     void el.offsetWidth;
     el.classList.add('show', 'pulse');

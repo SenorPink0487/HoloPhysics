@@ -436,8 +436,34 @@ test('handles upper limit conditions: field lines never overcrowd and outer ring
   assert.ok(outMax[outMax.length - 1] >= 4.0, `Outer rings must extend across the outer disk: ${outMax[outMax.length - 1]}`);
 });
 
+test('handles low |dB/dt| conditions: field lines are authentically sparse (<= 4 rings total, widely spaced) without clustering', async () => {
+  const { computeInducedFieldRingRadii } = await import('../src/experiments/inducedElectricFieldEquipment.js');
 
+  // 1. User screenshot case: R = 2.30 m, dB/dt = 0.04 T/s
+  const lowRateCase = computeInducedFieldRingRadii(2.30, 0.04);
+  const inLow = lowRateCase.filter((r) => r <= 2.30);
+  const outLow = lowRateCase.filter((r) => r > 2.30);
 
+  // Must be genuinely sparse: only 1 inner ring and 1-2 outer rings (total <= 4)
+  assert.ok(
+    lowRateCase.length >= 2 && lowRateCase.length <= 4,
+    `Total rings at dB/dt=0.04 should be between 2 and 4, got ${lowRateCase.length}: [${lowRateCase.join(', ')}]`,
+  );
+  assert.equal(inLow.length, 1, `Inner rings count should be 1 at very weak rate, got ${inLow.length}`);
+  assert.ok(outLow.length >= 1 && outLow.length <= 2, `Outer rings count should be 1-2, got ${outLow.length}`);
 
+  // Spacing between all adjacent rings must be wide (> 0.7 source units)
+  for (let i = 0; i < lowRateCase.length - 1; i += 1) {
+    const gap = lowRateCase[i + 1] - lowRateCase[i];
+    assert.ok(gap >= 0.7, `Gap between rings at index ${i} (${gap.toFixed(3)}) must be >= 0.7 for authentic sparsity`);
+  }
 
-
+  // 2. Weakest non-zero rate: dB/dt = 0.02 T/s across various R
+  [1.4, 2.0, 3.0].forEach((testR) => {
+    const rings = computeInducedFieldRingRadii(testR, 0.02);
+    assert.ok(
+      rings.length >= 1 && rings.length <= 4,
+      `At dB/dt=0.02, total rings at R=${testR} should be 1-4, got ${rings.length}`,
+    );
+  });
+});

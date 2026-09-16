@@ -6,6 +6,7 @@ import {
   formatPhysicsNumber,
   measureMathFormula,
   formatPhysicsHtml,
+  isRecordToast,
 } from '../src/physicsFormula.js';
 
 test('tokenizeFormula handles calligraphic EMF script letters \\mathcal{E} and ℰ', () => {
@@ -98,6 +99,46 @@ test('formatPhysicsHtml standardizes EMF formulas and subscripts for toasts', ()
   const r5 = formatPhysicsHtml('错误: <script>alert("xss")</script>');
   assert.ok(!r5.includes('<script>'));
   assert.ok(r5.includes('&lt;script&gt;'));
+});
+
+test('isRecordToast allows only data recording prompts and suppresses other notifications', () => {
+  // Positive cases: data recording feedback messages
+  assert.equal(isRecordToast('✓ 已记录第 1 组数据 (X=0.015 m, VH=1.17 mV)'), true);
+  assert.equal(isRecordToast('✓ 已记录第 3 组数据 (X=0.015 m, VH=1.17 mV) · 可拟合曲线'), true);
+  assert.equal(isRecordToast('✓ 已记录第 1 组'), true);
+  assert.equal(isRecordToast('✓ 已记录'), true);
+  assert.equal(isRecordToast('已记录当前读数'), true);
+  assert.equal(isRecordToast('已记录实验数据'), true);
+  assert.equal(isRecordToast('动生测量完成：\\mathcal{E}_i = 0.0500 V，顺时针'), true);
+  assert.equal(isRecordToast('感生测量完成：\\mathcal{E}_i = 0.0500 V，逆时针'), true);
+  assert.equal(isRecordToast('磁场滑块测量完成：ε_i = 21.1047 V，逆时针（俯视）'), true);
+
+  // Negative cases: experiment start, steps, completion, navigation, UI controls, warnings
+  assert.equal(isRecordToast('开始实验：法拉第电磁感应'), false);
+  assert.equal(isRecordToast('开始实验：静电场探索'), false);
+  assert.equal(isRecordToast('步骤 1/3'), false);
+  assert.equal(isRecordToast('实验完成！可返回菜单选择其他实验'), false);
+  assert.equal(isRecordToast('法拉第电磁感应实验完成'), false);
+  assert.equal(isRecordToast('静电场探索完成'), false);
+  assert.equal(isRecordToast('霍尔效应测磁实验完成'), false);
+  assert.equal(isRecordToast('已退出当前实验'), false);
+  assert.equal(isRecordToast('已关闭实验终端'), false);
+  assert.equal(isRecordToast('已打开 电磁学实验台 · 请选择实验'), false);
+  assert.equal(isRecordToast('返回实验室大厅'), false);
+  assert.equal(isRecordToast('已全屏显示实验内容屏 · Esc 退出全屏'), false);
+  assert.equal(isRecordToast('已退出全屏'), false);
+  assert.equal(isRecordToast('已瞄准场源电荷 q1；按住拖动或滚轮微调'), false);
+  assert.equal(isRecordToast('已抓住铜棒：沿导轨拖动，松开后显示动生电动势'), false);
+  assert.equal(isRecordToast('已选择画笔颜色'), false);
+  assert.equal(isRecordToast('黑板已清屏'), false);
+  assert.equal(isRecordToast('霍尔测量记录已清空'), false);
+  assert.equal(isRecordToast('至少记录 2 组数据后才能生成曲线'), false);
+  assert.equal(isRecordToast('暂无记录数据，请先点击「记录当前读数」'), false);
+  assert.equal(isRecordToast('已返回实验数据记录'), false);
+  assert.equal(isRecordToast('已打开打印与导出数据页面'), false);
+  assert.equal(isRecordToast(''), false);
+  assert.equal(isRecordToast(null), false);
+  assert.equal(isRecordToast(undefined), false);
 });
 
 
