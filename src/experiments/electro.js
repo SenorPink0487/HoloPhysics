@@ -2222,6 +2222,10 @@ export function createHandlers(ctx) {
       kind = 'induced-e';
     } else if (expId === 'hall_effect') {
       equipment.electro.setMode?.('hall');
+      if (currentStep()?.id === 'identify') {
+        equipment.electro?.resetHallIdentifyVisuals?.();
+        refreshHallIdentifyVisuals(null);
+      }
       kind = 'hall';
     } else if (expId === 'hall_carrier_demo') {
       equipment.electro.setMode?.('hall-demo');
@@ -3019,7 +3023,10 @@ export function createHandlers(ctx) {
 
   function onFocus(target) {
     if (state.expId === 'hall_effect' && currentStep()?.id === 'identify') {
-      const role = target?.userData?.role;
+      let role = target?.userData?.role;
+      if (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero') {
+        role = 'hall_console';
+      }
       refreshHallIdentifyVisuals(HALL_PART_NAMES[role] ? role : null);
       return;
     }
@@ -3183,13 +3190,17 @@ export function createHandlers(ctx) {
       return true;
     }
     if (step.id === 'identify') {
+      let effectiveRole = role;
+      if (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero') {
+        effectiveRole = 'hall_console';
+      }
       // Any valid apparatus: sequential check inside identifyHallRole (wrong order = tip).
-      if (HALL_PART_NAMES[role]) return identifyHallRole(role);
-      if (role === 'ui_action') {
+      if (HALL_PART_NAMES[effectiveRole]) return identifyHallRole(effectiveRole);
+      if (effectiveRole === 'ui_action') {
         const next = nextHallPart(state.data);
         return next ? identifyHallRole(next) : true;
       }
-      return identifyHallWrong(role || 'generic');
+      return identifyHallWrong(effectiveRole || 'generic');
     }
     const data = state.data;
     if (role === 'hall_helmholtz') {

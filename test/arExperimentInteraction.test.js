@@ -550,6 +550,45 @@ test('Hall identify requires sequential order and reports correct/wrong picks', 
   );
 });
 
+test('Hall identify: knobs map to hall_console on focus and interact', () => {
+  const partModes = {};
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'identify',
+    equipment: {
+      electro: {
+        setHallPartState: (role, mode) => { partModes[role] = mode; },
+        clearHallIdentifyVisuals: () => {},
+        updateHall: () => {},
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+
+  // Identify first 3
+  handlers.interact({ userData: { role: 'hall_helmholtz' } }, 0, { id: 'identify' });
+  handlers.interact({ userData: { role: 'hall_solenoid' } }, 0, { id: 'identify' });
+  handlers.interact({ userData: { role: 'hall_probe' } }, 0, { id: 'identify' });
+  assert.equal(ctx.state.data.identifyNext, 'hall_console');
+
+  // Hovering on knob highlights hall_console
+  handlers.onFocus({ userData: { role: 'hall_knob_im' } });
+  assert.equal(partModes.hall_console, 'hover');
+
+  // Moving off knob resets to off
+  handlers.onFocus(null);
+  assert.equal(partModes.hall_console, 'off');
+
+  // Clicking on knob correctly completes identification of hall_console
+  assert.equal(
+    handlers.interact({ userData: { role: 'hall_knob_is' } }, 0, { id: 'identify' }),
+    true,
+  );
+  assert.equal(ctx.state.data.identified.hall_console, true);
+});
+
 test('Hall wiring analysis correctly identifies 3-terminal Helmholtz connections', () => {
   const ctx = createContext({
     expId: 'hall_effect',

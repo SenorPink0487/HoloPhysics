@@ -113,6 +113,7 @@ export function createStationEquipment(ctx) {
     cancelHallWirePreview: (...args) => call('cancelHallWirePreview', ...args),
     setHallPartState: (...args) => call('setHallPartState', ...args),
     clearHallIdentifyVisuals: (...args) => call('clearHallIdentifyVisuals', ...args),
+    resetHallIdentifyVisuals: (...args) => call('resetHallIdentifyVisuals', ...args),
     getCamera: () => ctx.camera,
     getRuntimeRoot: (mode) => full?.equipment?.getRuntimeRoot?.(mode) || full?.root || root,
     getRoot: () => full?.root || root,
@@ -768,14 +769,17 @@ function createFullStationEquipment(ctx) {
       const knob = cyl(0.034, 0.038, 0.022, lab.steel, 22);
       knob.position.set(x, 0.1, 0.32);
       const knobRole = i === 0 ? 'hall_knob_im' : i === 1 ? 'hall_knob_is' : 'hall_knob_zero';
+      const knobTitles = ['励磁电流旋钮 (Im)', '霍尔电流旋钮 (Is)', '调零旋钮'];
       knob.userData.interactive = true;
       knob.userData.role = knobRole;
+      knob.userData.title = knobTitles[i];
       const knobHit = new THREE.Mesh(
         new THREE.BoxGeometry(0.09, 0.08, 0.09),
         new THREE.MeshBasicMaterial({ visible: false }),
       );
       knobHit.userData.interactive = true;
       knobHit.userData.role = knobRole;
+      knobHit.userData.title = knobTitles[i];
       knob.add(knobHit);
       const indicator = rbox(0.008, 0.004, 0.032, lab.paper, 0.001);
       indicator.position.set(0, 0.014, 0.017);
@@ -1791,6 +1795,13 @@ function createFullStationEquipment(ctx) {
       hit.position.set(...outlinePos);
       hit.userData.interactive = true;
       hit.userData.role = role;
+      const HALL_TITLES = {
+        hall_helmholtz: '亥姆霍兹线圈',
+        hall_solenoid: '长螺线管',
+        hall_probe: '霍尔探头与标尺',
+        hall_console: 'HCC-2 测磁仪',
+      };
+      if (HALL_TITLES[role]) hit.userData.title = HALL_TITLES[role];
       host.add(hit);
 
       const outline = makeSelectOutline(...size);
@@ -1807,9 +1818,8 @@ function createFullStationEquipment(ctx) {
       hall_solenoid: addHallRecognitionTarget(hallSolenoid, 'hall_solenoid', [0.95, 0.24, 0.22], [0, 0.0, 0]),
       // Full usable ruler length (rod visual is ~1.4 m starting near x=0)
       hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [1.32, 0.07, 0.08], [0.72, 0.02, 0]),
-      // Keep this tight: a broad console proxy sits in front of the coils and
-      // can otherwise swallow AR recognition rays meant for the other parts.
-      hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [0.72, 0.11, 0.22], [0, 0.06, 0.18]),
+      // Console spans 3 meters (x=-0.38 to +0.38), title plate, and adjustment knobs (z=0.32).
+      hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [1.10, 0.14, 0.34], [0, 0.10, 0.20]),
     };
     const hallRecognitionRings = {
       hall_helmholtz: hallTargets.hall_helmholtz.outline,
@@ -1832,7 +1842,7 @@ function createFullStationEquipment(ctx) {
       // Already-identified parts stop blocking rays so rear apparatus (e.g. solenoid
       // behind Helmholtz) can be selected from the front during sequential identify.
       if (hit) {
-        if (mode === 'done' || (mode === 'off' && role === 'hall_console')) {
+        if (mode === 'done') {
           hit.raycast = () => {};
           hit.userData.interactive = false;
         } else {
@@ -2101,6 +2111,12 @@ function createFullStationEquipment(ctx) {
         }
       });
     };
+    g.userData.resetHallIdentifyVisuals = () => {
+      // Fresh identify entry / experiment switch back: re-enable all recognition targets.
+      Object.keys(hallRecognitionHits).forEach((role) => {
+        setHallRecognitionMode(role, 'off');
+      });
+    };
     // helpers for experiment handlers / rail picking
     const _ray = new THREE.Raycaster();
     const _railOrigin = new THREE.Vector3();
@@ -2204,6 +2220,7 @@ function createFullStationEquipment(ctx) {
     cancelHallWirePreview: () => hallBench.userData.cancelHallWirePreview?.(),
     setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
     clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),
+    resetHallIdentifyVisuals: () => hallBench.userData.resetHallIdentifyVisuals?.(),
     getCamera: () => camera,
     getRoot: () => root,
     root,

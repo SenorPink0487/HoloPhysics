@@ -5198,7 +5198,10 @@ function resolveInteractivePreferred(hits) {
     if (!o) continue;
     if (!isHierarchyVisible(o)) continue;
     if (!withinInteractDist(o, hit.distance)) continue;
-    const role = o.userData.role || (o.userData.type === 'holo' ? 'holo' : '');
+    let role = o.userData.role || (o.userData.type === 'holo' ? 'holo' : '');
+    if (identifyNext && (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero')) {
+      role = 'hall_console';
+    }
     let pri = ROLE_PRI[role] ?? 10;
     if (identifyNext && role === identifyNext) pri += 45;
     // closer + higher role priority
@@ -5259,11 +5262,19 @@ function pickLiveElectroChargeHit(hits) {
     const entry = hits[i];
     const target = resolveInteractive(entry.object);
     if (!target || !isHierarchyVisible(target)) continue;
-    const role = target.userData?.role;
+    let role = target.userData?.role;
+    if (identifyNext && (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero')) {
+      role = 'hall_console';
+    }
     if (!roleSet.has(role)) continue;
     // In the sequential Hall introduction, a console hit volume can sit in
     // front of the coils and ruler. Prefer the requested part whenever its
     // own recognition proxy is also under the ray.
+    if (identifyNext && role === identifyNext) {
+      if (!expected || entry.distance < expected.hit.distance) {
+        expected = { target, hit: entry };
+      }
+    }
     if (role?.includes('label')) {
       return { target, hit: entry };
     }
