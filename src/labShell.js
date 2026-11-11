@@ -2516,10 +2516,10 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   const enTitle = STATION_EN[stationId] || 'STATION';
   const SURFACE = 'display';
 
-  // Fixed modest resolution: full dense UI still fits; ~half the fill cost of 1280×1200.
+  // Fixed modest resolution: full dense UI still fits; well below 1280×1200 fill cost.
   // Never reallocate on experiment switch (that was a major hitch).
-  const FIXED_DISPLAY_W = 960;
-  const FIXED_DISPLAY_H = 720;
+  const FIXED_DISPLAY_W = 1152;
+  const FIXED_DISPLAY_H = 768;
   let c = document.createElement('canvas');
   c.width = FIXED_DISPLAY_W;
   c.height = FIXED_DISPLAY_H;
@@ -2904,7 +2904,7 @@ const displayConfigs = [
   { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-3.4, 1.78, -3.75], rotY: 0 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [4.2, 1.78, -3.75], rotY: 0 },
   // Content displays float at comfortable eye level with balanced distance to the bench
-  { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-3.4, 1.76, 1.72], rotY: 0 },
+  { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-3.55, 1.84, 1.72], rotY: 0 },
   { id: 'thermo', title: '热力学', accent: '#fb923c', accentNum: 0xfb923c, pos: [4.2, 1.58, 1.72], rotY: 0 },
 ];
 const holos = {};
@@ -2985,13 +2985,19 @@ function syncDeskSlidersFromHud(payload) {
 
   Object.entries(deskSliderPanels).forEach(([id, panel]) => {
     if (!panel?.userData) return;
-    const want = running && id === activeId && !!expId;
+    // Electro station controls are stitched directly into their floating content displays.
+    const want = running && id === activeId && !!expId && id !== 'electro';
     if (!want) {
       if (panel.userData.present) panel.userData.setPresent?.(false);
       panel.userData._deskSig = '';
       return;
     }
     const { title, specs } = getDeskSliderConfig(id, expId, data, experiment);
+    if (!specs.length) {
+      if (panel.userData.present) panel.userData.setPresent?.(false);
+      panel.userData._deskSig = '';
+      return;
+    }
     const sig = `${expId}|${specs.map((s) => {
       if (s.kind === 'actionGroup') {
         const btns = (s.buttons || []).map((b) => `${b.label}:${b.action}:${!!b.active}`).join(';');
@@ -3466,7 +3472,7 @@ if (holoFsCanvas) {
     return live || fallback;
   }
 
-  function fsDispatchSlider(pick, clientX) {
+  function fsDispatchSlider(pick, clientX, live = true) {
     const value = fsSliderValueAt(clientX, pick);
     if (!Number.isFinite(value)) return false;
     if (pick.action === 'faraday-b-slider') {
@@ -3474,7 +3480,7 @@ if (holoFsCanvas) {
       return true;
     }
     if (pick.action === 'induced-e-slider') {
-      expManager?.uiAction?.('induced-e-set', { key: pick.key, value, live: true });
+      expManager?.uiAction?.('induced-e-set', { key: pick.key, value, live });
       return true;
     }
     if (pick.action === 'param-slider' && pick.setAction) {
@@ -3483,7 +3489,7 @@ if (holoFsCanvas) {
         value,
         axis: pick.axis,
         target: pick.target,
-        live: true,
+        live,
       });
       return true;
     }
@@ -3608,10 +3614,13 @@ if (holoFsCanvas) {
   const endFsSliderDrag = (e) => {
     if (!fsSliderDrag || (e && fsSliderDrag.pointerId !== e.pointerId)) return;
     try { holoFsCanvas.releasePointerCapture(fsSliderDrag.pointerId); } catch { /* ignore */ }
-    expManager?.endManipulation?.(
+    const handledEnd = expManager?.endManipulation?.(
       { userData: { role: fsSliderDrag.pick?.role || fsSliderDrag.pick?.action || 'param-slider' } },
       { time: clock.elapsedTime },
     );
+    if (!handledEnd && e && Number.isFinite(e.clientX) && fsSliderDrag.pick?.action === 'param-slider') {
+      fsDispatchSlider(fsLiveSliderPick(fsSliderDrag.pick), e.clientX, false);
+    }
     const moved = fsSliderDrag.moved;
     fsSliderDrag = moved ? { ...fsSliderDrag, pointerId: -1 } : null;
     if (moved) setTimeout(() => { if (fsSliderDrag?.pointerId === -1) fsSliderDrag = null; }, 0);
@@ -7035,7 +7044,9 @@ function ensureActiveApparatusVisible(stationId, expId, { includeChrome = false 
 // Reveal them during the guarded GPU phase as well, so compileAsync and the
 // composer see the same material set that the first active frame will see.
 function setActiveExperimentChromeVisible(stationId) {
-  deskSliderPanels?.[stationId]?.userData?.setPresent?.(true);
+  if (stationId !== 'electro') {
+    deskSliderPanels?.[stationId]?.userData?.setPresent?.(true);
+  }
   stationDisplays?.[stationId]?.userData?.setPresent?.(true);
 }
 
@@ -7214,6 +7225,7 @@ function beginExperimentIntentPrewarm(stationId, expId) {
 
 /** Materialize hidden controls before GPU preparation, without showing them. */
 function primeExperimentChromeForWarmup(stationId, expId) {
+  if (stationId === 'electro') return true;
   const panel = deskSliderPanels?.[stationId];
   const experiment = findExperiment(expId)?.experiment;
   if (!panel?.userData || !experiment) return true;

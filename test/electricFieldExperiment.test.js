@@ -707,5 +707,42 @@ test('electric-field aim marker tracks charge ground projection and clears on re
   assert.equal(aimMarker.visible, false);
 });
 
+test('electric-field floating display stitches Gauss shapes, radius, charge q, and probe q0 sliders', () => {
+  const ctx = {
+    save: () => {}, restore: () => {}, clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+    beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, arc: () => {}, arcTo: () => {},
+    closePath: () => {}, fill: () => {}, stroke: () => {}, fillText: () => {}, strokeText: () => {},
+    measureText: (t) => ({ width: String(t || '').length * 10 }),
+    setLineDash: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }), clip: () => {},
+  };
+  const res = drawHoloScreen(ctx, 1152, 768, {
+    surface: 'display',
+    theme: 'light',
+    active: true,
+    hud: {
+      running: true,
+      station: { id: 'electro', name: '电磁学实验台' },
+      experiment: { id: 'electric_field', name: '静电场探索' },
+      data: {
+        showGauss: true,
+        gaussShape: 'cube',
+        radius: 2.5,
+        charges: [{ id: 1, q: 1.5, x: 0.4, y: 0, z: 0 }],
+        selectedId: 1,
+        probe: { x: 1, y: 0, z: 0, q0: 1.2 },
+      },
+    },
+  });
+  const sliders = res.hits.filter((h) => h.role === 'param-slider');
+  assert.deepEqual(sliders.map((s) => s.key).sort(), ['q', 'q0', 'radius']);
+  const shapes = res.hits.filter((h) => h.action === 'electric-gauss-shape').map((h) => h.shape);
+  assert.deepEqual(shapes, ['sphere', 'cube', 'cylinder', 'irregular']);
+  const qHit = sliders.find((s) => s.key === 'q');
+  assert.ok(qHit.y + qHit.h <= 768, 'selected charge slider must fit inside canvas height');
+  const radHit = sliders.find((s) => s.key === 'radius');
+  assert.ok(radHit.y + radHit.h <= 768, 'Gauss radius slider must fit inside canvas height');
+});
+
 
 

@@ -1412,6 +1412,7 @@ function createFullStationEquipment(ctx) {
       let fieldShowKey = '';
       let fieldLastB = NaN;
       let fieldLastSign = 0;
+      let fieldLastHidden = true;
       const fieldArrows = [];
       const fieldDir = new THREE.Vector3(0, 1, 0);
       const _fieldOrigin = new THREE.Vector3();
@@ -1435,6 +1436,7 @@ function createFullStationEquipment(ctx) {
         fieldShowKey = '';
         fieldLastB = NaN;
         fieldLastSign = 0;
+        fieldLastHidden = true;
       }
       function ensureFieldAssets(color, sign = 1) {
         if (fieldArrows.length >= FIELD_POOL) return;
@@ -1458,26 +1460,34 @@ function createFullStationEquipment(ctx) {
       function applyFieldLayout(B, force = false) {
         const b = Number(B || 0);
         const absB = Math.abs(b);
+        // Handle near-zero suppression before updating sign/B caches so crossing 0
+        // cannot desync fieldLastSign from fieldDir and invert arrows into the desk.
+        if (absB < 0.02) {
+          if (!fieldLastHidden || force) {
+            fieldArrowBatch.setCount(0);
+            fieldArrowBatch.commit();
+          }
+          fieldLastB = NaN;
+          fieldLastSign = 0;
+          fieldLastHidden = true;
+          return;
+        }
+
         const strength = THREE.MathUtils.clamp(absB / 3, 0, 1);
         const color = b >= 0 ? 0x38bdf8 : 0xf97316;
         const sign = b >= 0 ? 1 : -1;
         const signChanged = sign !== fieldLastSign;
-        // Skip micro-changes during animation unless forced or sign flipped
-        if (!force && !signChanged && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 0.035) {
+        // Skip micro-changes during animation unless forced, unhidden, or sign flipped
+        if (!force && !fieldLastHidden && !signChanged && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 0.035) {
           return;
         }
         fieldLastB = b;
         fieldLastSign = sign;
-
-        if (absB < 0.02) {
-          fieldArrowBatch.setCount(0);
-          fieldArrowBatch.commit();
-          return;
-        }
+        fieldLastHidden = false;
 
         // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
         const spacing = THREE.MathUtils.lerp(FIELD_SPACING_SPARSE, FIELD_SPACING_DENSE, strength);
-        if (signChanged) fieldDir.set(0, sign, 0);
+        fieldDir.set(0, sign, 0);
         const baseLineOp = THREE.MathUtils.lerp(0.65, 0.9, strength);
         const baseConeOp = THREE.MathUtils.lerp(0.75, 1.0, strength);
 
@@ -1518,6 +1528,7 @@ function createFullStationEquipment(ctx) {
           fieldShowKey = 'on';
           fieldLastB = NaN;
           fieldLastSign = 0;
+          fieldLastHidden = true;
         }
         const b = Number(B || 0);
         ensureFieldAssets(b >= 0 ? 0x38bdf8 : 0xf97316, b >= 0 ? 1 : -1);

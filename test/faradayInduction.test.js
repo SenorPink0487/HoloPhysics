@@ -8,7 +8,12 @@ import {
   faradaySense,
   createHandlers,
 } from '../src/experiments/electro.js';
-import { faradayBFromSliderPick } from '../src/holoScreen.js';
+import {
+  drawHoloScreen,
+  faradayBFromSliderPick,
+  getHoloScreenLayoutSize,
+  pickHoloScreen,
+} from '../src/holoScreen.js';
 import { getDeskSliderConfig } from '../src/deskSliderCatalog.js';
 import { STATION_EXPERIMENTS } from '../src/experiments/registry.js';
 import { createStationEquipment as createElectroEquipment } from '../src/scene/stations/electro.js';
@@ -421,9 +426,145 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
       assert.ok(visibleArrowsUp.length >= 10, 'Must have active visible B arrows for B = 1.5');
       assert.equal(visibleArrowsUp[0].line.material.color.getHexString(), '38bdf8', 'B > 0 arrows must be sky-blue/cyan');
     }
+
+    // Smooth animation across B = 0 (|B| < 0.02) must re-sync arrow orientation and keep arrows above the desk
+    if (fieldArrowGroup) {
+      const head = fieldArrowGroup.getObjectByName('faraday-field-arrows-head');
+      const mat = new THREE.Matrix4();
+      const arrowLength = 1.02 * 0.12;
+      const collectActiveArrows = () => {
+        const active = [];
+        for (let i = 0; i < head.count; i += 1) {
+          head.getMatrixAt(i, mat);
+          const e = mat.elements;
+          const sx = Math.hypot(e[0], e[1], e[2]);
+          if (sx < 1e-4) continue;
+          active.push({ originY: e[13], dirY: e[5] });
+        }
+        return active;
+      };
+
+      for (const B of [-1, -0.5, -0.01, 0.01, 0.03, 0.5, 1.5]) {
+        station.equipment.updateFaraday({ B, x: 6.62, showField: true }, 1 / 60);
+      }
+      const upArrows = collectActiveArrows();
+      assert.ok(upArrows.length >= 10, 'B = +1.5 after crossing 0 must render visible arrows');
+      for (const arrow of upArrows) {
+        assert.ok(arrow.dirY > 0.99, `B > 0 arrow must point +Y, got dirY=${arrow.dirY}`);
+        assert.ok(arrow.originY > 0, `B > 0 arrow origin must stay above desk, got ${arrow.originY}`);
+        assert.ok(arrow.originY + arrow.dirY * arrowLength > arrow.originY);
+      }
+
+      for (const B of [0.5, 0.01, -0.01, -0.03, -0.5, -1]) {
+        station.equipment.updateFaraday({ B, x: 6.62, showField: true }, 1 / 60);
+      }
+      const downArrows = collectActiveArrows();
+      assert.ok(downArrows.length >= 10, 'B = -1 after crossing 0 must render visible arrows');
+      for (const arrow of downArrows) {
+        assert.ok(arrow.dirY < -0.99, `B < 0 arrow must point -Y, got dirY=${arrow.dirY}`);
+        const tipY = arrow.originY + arrow.dirY * arrowLength;
+        assert.ok(tipY > 0, `B < 0 arrow tip must stay above desk, got tipY=${tipY}`);
+      }
+
+      // Crossing below 0.02 from 0.03 must hide arrows immediately
+      station.equipment.updateFaraday({ B: 0.03, x: 6.62, showField: true }, 1 / 60);
+      assert.ok(head.count > 0);
+      station.equipment.updateFaraday({ B: 0.01, x: 6.62, showField: true }, 1 / 60);
+      assert.equal(head.count, 0, 'Dropping from 0.03 into |B| < 0.02 must hide arrows immediately');
+    }
   } finally {
     if (origDoc === undefined) delete globalThis.document;
     else globalThis.document = origDoc;
   }
+});
+
+test('Faraday floating display integrates all desk controls and resolves exact slider/button hits', () => {
+  const { state } = faradayContext();
+  const experiment = STATION_EXPERIMENTS.electro.experiments.find((item) => item.id === 'faraday_induction');
+  const station = { id: 'electro', name: '电磁学实验台', experiments: STATION_EXPERIMENTS.electro.experiments };
+  const stubCtx = {
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    fillText() {},
+    save() {},
+    restore() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    arc() {},
+    arcTo() {},
+    fill() {},
+    stroke() {},
+    addColorStop() {},
+    createLinearGradient() { return { addColorStop() {} }; },
+    createRadialGradient() { return { addColorStop() {} }; },
+    measureText() { return { width: 48 }; },
+  };
+
+  for (const [surface, W, H] of [['display', 1152, 768], ['full', 1024, 660]]) {
+    const hud = { running: true, station, experiment, data: { ...state.data } };
+    const res = drawHoloScreen(stubCtx, W, H, {
+      active: true,
+      hud,
+      surface,
+      theme: surface === 'display' ? 'light' : 'dark',
+      fullTitle: '电磁学实验台',
+      enTitle: 'ELECTROMAGNETISM',
+    });
+
+    const hits = res.hits;
+    const channelXHit = hits.find((h) => h.action === 'faraday-channel' && h.channel === 'x');
+    const channelBHit = hits.find((h) => h.action === 'faraday-channel' && h.channel === 'B');
+    const targetBHit = hits.find((h) => h.action === 'param-slider' && h.key === 'targetB');
+    const durationHit = hits.find((h) => h.action === 'param-slider' && h.key === 'animDuration');
+    const liveBHit = hits.find((h) => h.action === 'param-slider' && h.key === 'B');
+    const liveXHit = hits.find((h) => h.action === 'param-slider' && h.key === 'x');
+    const playHit = hits.find((h) => h.action === 'faraday-play');
+    const reverseHit = hits.find((h) => h.action === 'faraday-reverse');
+    const toggleFieldHit = hits.find((h) => h.action === 'faraday-toggle-field');
+    const resetHit = hits.find((h) => h.action === 'faraday-reset');
+
+    for (const [name, hit] of [
+      ['channelX', channelXHit],
+      ['channelB', channelBHit],
+      ['targetB', targetBHit],
+      ['animDuration', durationHit],
+      ['liveB', liveBHit],
+      ['liveX', liveXHit],
+      ['play', playHit],
+      ['reverse', reverseHit],
+      ['toggleField', toggleFieldHit],
+      ['reset', resetHit],
+    ]) {
+      assert.ok(hit, `${surface}: expected ${name} hit region`);
+      assert.ok(hit.y >= 0 && hit.y + hit.h <= H, `${surface}: ${name} hit must fit vertically inside ${H}`);
+      assert.ok(hit.x >= 0 && hit.x + hit.w <= W, `${surface}: ${name} hit must fit horizontally inside ${W}`);
+      const u = (hit.x + hit.w / 2) / W;
+      const v = 1 - (hit.y + hit.h / 2) / H;
+      const picked = pickHoloScreen(u, v, W, H, hits, 1);
+      assert.ok(picked, `${surface}: pickHoloScreen must resolve ${name}`);
+      assert.equal(picked.id || picked.action, hit.id || hit.action, `${surface}: center of ${name} must not be stolen by adjacent hit`);
+    }
+
+    // Switching animChannel to 'x' swaps targetB slider for targetX
+    const hudX = { running: true, station, experiment, data: { ...state.data, animChannel: 'x' } };
+    const resX = drawHoloScreen(stubCtx, W, H, {
+      active: true,
+      hud: hudX,
+      surface,
+      theme: surface === 'display' ? 'light' : 'dark',
+    });
+    assert.ok(resX.hits.some((h) => h.action === 'param-slider' && h.key === 'targetX'));
+    assert.ok(!resX.hits.some((h) => h.action === 'param-slider' && h.key === 'targetB'));
+  }
+
+  const layoutDisplay = getHoloScreenLayoutSize({
+    active: true,
+    surface: 'display',
+    hud: { running: true, experiment },
+  });
+  assert.ok(layoutDisplay.width >= 1152 && layoutDisplay.height >= 780);
 });
 

@@ -1582,7 +1582,7 @@ export function createHandlers(ctx) {
     recomputeInducedElectric(data);
     equipment.electro?.updateInducedElectric?.(data, step);
     data._hudThrottle = Number(data._hudThrottle || 0) + step;
-    const hudInterval = data.dragging || data.sliderDragging ? 0.1 : 0.22;
+    const hudInterval = (data.dragging || data.sliderDragging || data._uiSlider) ? 0.05 : 0.22;
     if (data._hudThrottle > hudInterval) {
       data._hudThrottle = 0;
       pushHud();
@@ -1930,9 +1930,11 @@ export function createHandlers(ctx) {
     syncFaraday(data, false, step);
     data._hudThrottle += step;
     // Anim / drag needs livelier readout; keep well under full paint every frame.
-    const hudInterval = data.pendingAnim || data.sliderDragging || data.dragging
-      ? 0.08
-      : 0.22;
+    const hudInterval = (data.sliderDragging || data.dragging || data._uiSlider)
+      ? 0.05
+      : data.pendingAnim
+        ? 0.08
+        : 0.22;
     if (data._hudThrottle > hudInterval) {
       data._hudThrottle = 0;
       pushHud();
@@ -2483,7 +2485,8 @@ export function createHandlers(ctx) {
         // Live pointer samples only mutate state. The fixed/render frame owns
         // the expensive apparatus update so input frequency cannot cause
         // duplicate scene work or make B dragging uneven.
-        syncFaraday(data, !live, 0, !live);
+        const presetOnly = key === 'targetB' || key === 'targetX' || key === 'animDuration';
+        syncFaraday(data, !live || presetOnly, 0, !live);
         return true;
       }
       if (action === 'faraday-channel') {
@@ -4064,9 +4067,10 @@ export function createHandlers(ctx) {
     if (state.expId === 'electric_field' && state.data) {
       // Probe E/F every frame (cheap); field-line pack only when dirty.
       syncElectricField(state.data, false, dt);
-      if (state.data.dragging) {
+      if (state.data.dragging || state.data._uiSlider) {
         state.data._hudThrottle = (state.data._hudThrottle || 0) + dt;
-        if (state.data._hudThrottle > 0.25) {
+        const interval = state.data._uiSlider ? 0.05 : 0.25;
+        if (state.data._hudThrottle > interval) {
           state.data._hudThrottle = 0;
           pushHud();
         }
@@ -4094,6 +4098,13 @@ export function createHandlers(ctx) {
       }
       equipment.electro?.setHallDemoHostParticlesOwned?.(hallHostParticlesLive);
       equipment.electro?.updateHallDemo?.(state.data, dt);
+      if (state.data._uiSlider) {
+        state.data._hudThrottle = (state.data._hudThrottle || 0) + dt;
+        if (state.data._hudThrottle > 0.05) {
+          state.data._hudThrottle = 0;
+          pushHud();
+        }
+      }
       return state.data;
     }
     if (state.expId !== 'hall_effect' || !state.data) return state.data;
@@ -4102,7 +4113,8 @@ export function createHandlers(ctx) {
     data.vh = calculateHallVoltage(data);
     equipment.electro?.updateHall?.(data);
     data._hudThrottle = (data._hudThrottle || 0) + dt;
-    if (data._hudThrottle > 0.35) {
+    const hallInterval = (data._uiSlider || data.hallDragArmed) ? 0.05 : 0.35;
+    if (data._hudThrottle > hallInterval) {
       data._hudThrottle = 0;
       pushHud();
     }

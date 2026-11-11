@@ -10,7 +10,7 @@ import {
   inducedEVectorAt,
   createHandlers,
 } from '../src/experiments/electro.js';
-import { inducedEFromSliderPick } from '../src/holoScreen.js';
+import { inducedEFromSliderPick, drawHoloScreen, pickHoloScreen, valueFromParamSliderPick } from '../src/holoScreen.js';
 import { getDeskSliderConfig } from '../src/deskSliderCatalog.js';
 import { STATION_EXPERIMENTS } from '../src/experiments/registry.js';
 
@@ -466,4 +466,40 @@ test('handles low |dB/dt| conditions: field lines are authentically sparse (<= 4
       `At dB/dt=0.02, total rings at R=${testR} should be 1-4, got ${rings.length}`,
     );
   });
+});
+
+test('induced electric field floating display stitches all desk sliders and buttons', () => {
+  const ctx = {
+    save: () => {}, restore: () => {}, clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+    beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, arc: () => {}, arcTo: () => {},
+    closePath: () => {}, fill: () => {}, stroke: () => {}, fillText: () => {}, strokeText: () => {},
+    measureText: (t) => ({ width: String(t || '').length * 10 }),
+    setLineDash: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }), clip: () => {},
+  };
+  const { state } = context();
+  const res = drawHoloScreen(ctx, 1152, 768, {
+    surface: 'display',
+    theme: 'light',
+    active: true,
+    hud: {
+      running: true,
+      station: { id: 'electro', name: '电磁学实验台' },
+      experiment: { id: 'induced_electric_field', name: '感生电场' },
+      data: state.data,
+    },
+  });
+  const keys = res.hits.filter((h) => h.role === 'param-slider').map((h) => h.key);
+  assert.deepEqual(keys.sort(), ['R', 'dBdt', 'probeR', 'q0']);
+  const actions = new Set(res.hits.map((h) => h.action));
+  for (const act of ['induced-e-mode', 'induced-e-flip', 'induced-e-probe-sign', 'induced-e-toggle', 'induced-e-reset']) {
+    assert.ok(actions.has(act), `missing stitched action: ${act}`);
+  }
+  const rHit = res.hits.find((h) => h.key === 'R');
+  const px = rHit.trackX + rHit.trackW * 0.75;
+  const py = rHit.y + rHit.h * 0.5;
+  const pick = pickHoloScreen(px / 1152, 1 - py / 768, 1152, 768, res.hits, 1);
+  assert.equal(pick?.key, 'R');
+  const val = valueFromParamSliderPick(pick);
+  assert.ok(val >= 2.2 && val <= 2.6, `picked R expected ~2.45, got ${val}`);
 });

@@ -203,7 +203,9 @@ let _uiHoverAction = null;
 let _uiHoverId = null;
 
 function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false, theme = 'dark', pressed = false) {
-  const isPressed = pressed || (action && _uiPressedAction === action) || (meta?.id && _uiPressedId === meta.id);
+  const btnOpts = (pressed && typeof pressed === 'object') ? pressed : null;
+  const flagPressed = btnOpts ? Boolean(btnOpts.pressed) : Boolean(pressed);
+  const isPressed = flagPressed || (action && _uiPressedAction === action) || (meta?.id && _uiPressedId === meta.id);
   const isLight = theme === 'light';
   ctx.save();
 
@@ -241,7 +243,7 @@ function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accen
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const customFontSize = Number(meta?.fontSize);
+  const customFontSize = Number(btnOpts?.fontPx ?? btnOpts?.fontSize ?? meta?.fontSize);
   let fontSize;
   if (Number.isFinite(customFontSize) && customFontSize > 0) {
     fontSize = customFontSize;
@@ -321,6 +323,7 @@ function drawParamSlider(ctx, hits, opts) {
     largeType = false,
     /** Hide min/max ticks under the track (cleaner when largeType). */
     hideRange = false,
+    step = null,
     id = null,
   } = opts;
   const P = screenPalette(_uiTheme, accentHex, false);
@@ -337,10 +340,10 @@ function drawParamSlider(ctx, hits, opts) {
     : compact ? Math.round(h * 0.38) : Math.round(h * 0.42);
 
   const labelPx = largeType
-    ? Math.max(20, Math.round(h * 0.36))
+    ? Math.max(15, Math.round(h * 0.34))
     : Math.max(11, Math.round(h * 0.22));
   const valuePx = largeType
-    ? Math.max(22, Math.round(h * 0.40))
+    ? Math.max(17, Math.round(h * 0.38))
     : Math.max(12, Math.round(h * 0.28));
   const rangePx = largeType
     ? Math.max(13, Math.round(h * 0.18))
@@ -366,9 +369,11 @@ function drawParamSlider(ctx, hits, opts) {
   ctx.fillStyle = P.text;
   ctx.font = `bold ${valuePx}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
   const valueText = `${v.toFixed(digits)}${unit ? ` ${unit}` : ''}`;
   ctx.fillText(valueText, x + w - padX, y + Math.round(h * (largeType ? 0.04 : 0.06)));
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
   const trackX = x + padX;
   const trackW = Math.max(8, w - padX * 2);
@@ -392,9 +397,10 @@ function drawParamSlider(ctx, hits, opts) {
     ctx.textAlign = 'left';
   }
 
+  const thumbCx = trackX + trackW * norm;
+  const thumbCy = trackY + trackH / 2;
   ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(trackX + trackW * norm, trackY + trackH / 2, thumbR, 0, Math.PI * 2);
+  roundRect(ctx, thumbCx - thumbR, thumbCy - thumbR, thumbR * 2, thumbR * 2, thumbR);
   ctx.fill();
   ctx.strokeStyle = accentHex;
   ctx.lineWidth = Math.max(2, Math.round(h * 0.05));
@@ -416,6 +422,7 @@ function drawParamSlider(ctx, hits, opts) {
     trackW,
     min: lo,
     max: hi,
+    step: Number.isFinite(Number(step)) && Number(step) > 0 ? Number(step) : null,
     dragAxis: 'x',
   });
 }
@@ -443,7 +450,13 @@ export function valueFromParamSliderPick(pick) {
   const trackX = Number.isFinite(pick.trackX) ? Number(pick.trackX) : Number(pick.x || 0);
   const trackW = Math.max(1, Number.isFinite(pick.trackW) ? Number(pick.trackW) : Number(pick.w || 1));
   const u = Math.max(0, Math.min(1, (Number(pick.px) - trackX) / trackW));
-  return min + u * (max - min);
+  let val = min + u * (max - min);
+  const step = Number(pick.step);
+  if (Number.isFinite(step) && step > 0) {
+    val = Math.round((val - min) / step) * step + min;
+    val = Math.max(min, Math.min(max, Number(val.toFixed(6))));
+  }
+  return val;
 }
 
 /**
@@ -451,295 +464,876 @@ export function valueFromParamSliderPick(pick) {
  * watch live E / Lenz sense, then review motion vs induction results.
  */
 function drawFaradayExperiment(ctx, _W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const { hits, innerX, innerW, contentTop, contentH, hud } = cfg;
   _uiTheme = cfg.theme || 'dark';
   const isDisplay = cfg.surface === 'display';
-  const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
-  const P = screenPalette(_uiTheme, accentHex, isDisplay);
+  const isLight = _uiTheme === 'light';
+  const primaryBlue = isLight ? '#0284c7' : '#38bdf8';
+  const softFill = isLight ? 'rgba(14, 165, 233, 0.10)' : 'rgba(56, 189, 248, 0.14)';
+  const softStroke = isLight ? 'rgba(14, 165, 233, 0.34)' : 'rgba(56, 189, 248, 0.32)';
+  const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.28)' : 'rgba(56, 189, 248, 0.22)';
+  const P = screenPalette(_uiTheme, primaryBlue, isDisplay);
   const d = hud?.data || {};
   const fmt = (v, n = 3) => Number(v || 0).toFixed(n);
-  const motion = d.lastMotion;
-  const induction = d.lastInduction;
-  const gap = Math.round(10 * scale);
+  const uiScale = Math.max(0.78, Math.min(innerW / 1080, contentH / 640));
+
   const x = innerX;
   const w = innerW;
+  const pad = Math.round(14 * uiScale);
+  const gap = Math.round(12 * uiScale);
+
+  const bVal = Number(d.B || 0);
+  const xVal = Number(d.x ?? 4.5);
+  const fluxVal = Number(d.flux || 0);
+  const liveEmf = Number(d.liveEmf || 0);
   const animating = !!d.pendingAnim;
   const channelX = d.animChannel === 'x';
-  const liveEmf = Number(d.liveEmf || 0);
+  const showField = d.showField !== false;
+  const motion = d.lastMotion;
+  const induction = d.lastInduction;
 
-  // —— Compact metric strip ——
-  const statY = contentTop;
-  const statH = Math.round(66 * scale);
+  const targetChanged = channelX
+    ? (motion && Math.abs(motion.x1 - (d.targetX ?? xVal)) > 1e-4)
+    : (induction && Math.abs(induction.B1 - (d.targetB ?? bVal)) > 1e-4);
+  const hasPlayed = channelX ? !!(motion && !targetChanged) : !!(induction && !targetChanged);
+  const playLabel = animating ? '停止' : (hasPlayed ? '重复变化' : '自动演示');
+
+  // —— 1. Top Live Telemetry Strip (4 equal cells, large crisp numerals) ——
+  const statY = contentTop + Math.round(2 * uiScale);
+  const statH = Math.round(74 * uiScale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 1.6 : 1.2;
-  roundRect(ctx, x, statY, w, statH, 10);
+  roundRect(ctx, x, statY, w, statH, 12);
   ctx.fill();
   ctx.stroke();
+
+  const emfActive = animating || Math.abs(liveEmf) > 1e-6;
+  const senseTag = d.currentSense === 'ccw' ? ' · 逆时针' : d.currentSense === 'cw' ? ' · 顺时针' : '';
   const stats = [
-    ['\\Phi_B', `${fmt(d.flux)} Wb`],
-    ['\\mathcal{E}_i', `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V`],
+    { label: '实时磁场 B', value: `${bVal >= 0 ? '+' : ''}${fmt(bVal, 2)} T`, color: Math.abs(bVal) >= 0.02 ? primaryBlue : P.title },
+    { label: '铜棒位置 x', value: `${fmt(xVal, 2)} m`, color: P.title },
+    { label: '磁通量 \\Phi_B', value: `${fluxVal >= 0 ? '+' : ''}${fmt(fluxVal, 2)} Wb`, color: P.title },
+    { label: '感应电动势 \\mathcal{E}_i', value: `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V${senseTag}`, color: emfActive ? primaryBlue : P.title },
   ];
-  stats.forEach(([label, value], i) => {
+
+  stats.forEach((st, i) => {
     const colW = w / stats.length;
-    const cx = x + i * colW + colW / 2;
-    const labelY = statY + Math.round(statH * 0.12);
-    const valY = statY + Math.round(statH * 0.48);
-    if (/[\\_^{}]/.test(label)) {
-      drawMathFormula(ctx, label, cx, labelY, {
-        fontSize: Math.round(16 * scale),
-        color: P.muted,
-        align: 'center',
-        textBaseline: 'top',
-      });
-    } else {
-      ctx.fillStyle = P.muted;
-      ctx.font = `italic bold ${Math.round(16 * scale)}px "Times New Roman", "Cambria Math", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(label, cx, labelY);
+    const colX = x + i * colW;
+    const cx = colX + colW / 2;
+    if (i > 0) {
+      ctx.strokeStyle = dividerStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(colX, statY + Math.round(12 * uiScale));
+      ctx.lineTo(colX, statY + statH - Math.round(12 * uiScale));
+      ctx.stroke();
     }
-    if (i === 1 && (animating || Math.abs(liveEmf) > 1e-6)) {
-      ctx.fillStyle = _uiTheme === 'light' ? '#0284c7' : '#38bdf8';
-    } else {
-      ctx.fillStyle = P.text;
+    drawMathFormula(ctx, st.label, cx, statY + Math.round(10 * uiScale), {
+      fontSize: Math.round(17 * uiScale),
+      color: P.muted,
+      align: 'center',
+      textBaseline: 'top',
+    });
+    ctx.fillStyle = st.color;
+    let valPx = Math.round(25 * uiScale);
+    ctx.font = `bold ${valPx}px "Microsoft YaHei", sans-serif`;
+    while (valPx > 14 && ctx.measureText(st.value).width > colW - Math.round(18 * uiScale)) {
+      valPx -= 1;
+      ctx.font = `bold ${valPx}px "Microsoft YaHei", sans-serif`;
     }
-    ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(value, cx, valY);
+    ctx.fillText(st.value, cx, statY + Math.round(35 * uiScale));
   });
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
 
-  let cy = statY + statH + gap;
+  // —— 2. Two-column Workspace (Left: Dual Control Sub-cards, Right: Structured Result Cards) ——
+  const bodyY = statY + statH + gap;
+  const bodyH = Math.max(240, contentTop + contentH - bodyY);
+  const ctrlW = Math.round((w - gap) * 0.53);
+  const resX = x + ctrlW + gap;
+  const resW = w - ctrlW - gap;
 
-  // —— Dual result cards fill remaining height ——
-  const cardBottom = contentTop + contentH;
-  const cardW = (w - gap) / 2;
-  const cardH = Math.max(80, cardBottom - cy);
+  const btnGap = Math.round(10 * uiScale);
+  const sliderGap = Math.round(8 * uiScale);
+  const sliderInset = Math.round(6 * uiScale);
+  const subHeadH = Math.round(28 * uiScale);
+  const modeBtnH = Math.round(42 * uiScale);
+  const actBtnH = Math.round(44 * uiScale);
+  const utilH = Math.round(40 * uiScale);
+  const subGap = Math.round(10 * uiScale);
+  const subPad = Math.round(13 * uiScale);
+
+  // Compute exact slider height so Group A + Group B cards fill 100% of bodyH with zero dead gap
+  const fixedCtrlH = (
+    subPad * 4
+    + subHeadH * 2
+    + modeBtnH
+    + actBtnH
+    + utilH
+    + subGap
+    + Math.round(8 * uiScale) * 4
+    + sliderGap * 2
+  );
+  const sliderH = Math.max(
+    Math.round(52 * uiScale),
+    Math.floor((bodyH - fixedCtrlH) / 4),
+  );
+  const groupAH = (
+    subPad * 2
+    + subHeadH
+    + Math.round(8 * uiScale)
+    + modeBtnH
+    + Math.round(8 * uiScale)
+    + sliderH * 2
+    + sliderGap
+    + Math.round(8 * uiScale)
+    + actBtnH
+  );
+  const groupBY = bodyY + groupAH + subGap;
+  const groupBH = Math.max(120, bodyY + bodyH - groupBY);
+
+  const cx = x + pad;
+  const cw = ctrlW - pad * 2;
+  const halfBtnW = (cw - btnGap) / 2;
+  const btnFontPx = Math.round(19 * uiScale);
+
+  const drawSliderBox = (opts) => {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.26)' : 'rgba(56, 189, 248, 0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx, opts.y, cw, opts.h, 10);
+    ctx.fill();
+    ctx.stroke();
+    drawParamSlider(ctx, hits, {
+      ...opts,
+      x: cx + sliderInset,
+      w: cw - sliderInset * 2,
+      accentHex: primaryBlue,
+      largeType: true,
+      hideRange: true,
+    });
+  };
+
+  // Sub-card A: Dynamic Animation Controls
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, bodyY, ctrlW, groupAH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  let cyA = bodyY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(19 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('动态变化演示', cx, cyA);
+
+  ctx.fillStyle = primaryBlue;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(animating ? '● 演示进行中' : (channelX ? '当前：动生电动势' : '当前：感生电动势'), cx + cw, cyA + Math.round(3 * uiScale));
+  ctx.textAlign = 'left';
+  cyA += subHeadH + Math.round(8 * uiScale);
+
+  drawHallButton(ctx, hits, cx, cyA, halfBtnW, modeBtnH, '动生（移动 x）', 'faraday-channel', { channel: 'x', fontSize: btnFontPx }, primaryBlue, channelX);
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, cyA, halfBtnW, modeBtnH, '感生（改变 B）', 'faraday-channel', { channel: 'B', fontSize: btnFontPx }, primaryBlue, !channelX);
+  cyA += modeBtnH + Math.round(8 * uiScale);
+
+  drawSliderBox({
+    y: cyA,
+    h: sliderH,
+    label: channelX ? '目标 x' : '目标 B',
+    value: channelX ? Number(d.targetX ?? xVal) : Number(d.targetB ?? 1.5),
+    min: channelX ? 1.2 : -3,
+    max: channelX ? 8 : 3,
+    unit: channelX ? 'm' : 'T',
+    digits: 2,
+    setAction: 'faraday-set',
+    key: channelX ? 'targetX' : 'targetB',
+    id: channelX ? 'faraday-target-x' : 'faraday-target-b',
+  });
+  cyA += sliderH + sliderGap;
+
+  drawSliderBox({
+    y: cyA,
+    h: sliderH,
+    label: '时长 Δt',
+    value: Number(d.animDuration ?? 1.5),
+    min: 0.3,
+    max: 6,
+    unit: 's',
+    digits: 2,
+    setAction: 'faraday-set',
+    key: 'animDuration',
+    id: 'faraday-anim-duration',
+  });
+  cyA += sliderH + Math.round(8 * uiScale);
+
+  drawHallButton(ctx, hits, cx, cyA, halfBtnW, actBtnH, playLabel, animating ? 'faraday-stop' : 'faraday-play', { fontSize: btnFontPx }, primaryBlue, animating);
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, cyA, halfBtnW, actBtnH, '反向变化', 'faraday-reverse', { fontSize: btnFontPx }, primaryBlue, false);
+
+  // Sub-card B: Real-time Manual Controls + Utilities
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, groupBY, ctrlW, groupBH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  let cyB = groupBY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(19 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('实时手动调节', cx, cyB);
+
+  ctx.fillStyle = P.muted;
+  ctx.font = `600 ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText('可拖动 3D 铜棒或滑块', cx + cw, cyB + Math.round(3 * uiScale));
+  ctx.textAlign = 'left';
+  cyB += subHeadH + Math.round(8 * uiScale);
+
+  drawSliderBox({
+    y: cyB,
+    h: sliderH,
+    label: '实时 B',
+    value: bVal,
+    min: -3,
+    max: 3,
+    unit: 'T',
+    digits: 2,
+    setAction: 'faraday-set',
+    key: 'B',
+    id: 'faraday-live-b',
+  });
+  cyB += sliderH + sliderGap;
+
+  drawSliderBox({
+    y: cyB,
+    h: sliderH,
+    label: '实时 x',
+    value: xVal,
+    min: 1.2,
+    max: 8,
+    unit: 'm',
+    digits: 2,
+    setAction: 'faraday-set',
+    key: 'x',
+    id: 'faraday-live-x',
+  });
+
+  const utilY = groupBY + groupBH - subPad - utilH;
+  drawHallButton(ctx, hits, cx, utilY, halfBtnW, utilH, showField ? '磁感线：显示' : '磁感线：隐藏', 'faraday-toggle-field', { fontSize: Math.round(18 * uiScale) }, primaryBlue, showField);
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, utilY, halfBtnW, utilH, '重置实验', 'faraday-reset', { fontSize: Math.round(18 * uiScale) }, primaryBlue, false);
+
+  // —— 3. Right Column: Structured 2×2 Data Grid + Prominent EMF Banner Cards ——
+  const cardH = Math.floor((bodyH - gap) / 2);
   const cards = [
     {
       title: '动生 · x 变化',
       data: motion,
-      lines: motion
-        ? [`x: ${fmt(motion.x0)} \\rightarrow ${fmt(motion.x1)} \\mathrm{m}`, `\\Delta x = ${fmt(motion.dx)} \\mathrm{m} \\quad \\Delta t = ${fmt(motion.dt, 3)} \\mathrm{s}`, `\\mathcal{E}_i = ${fmt(motion.emf, 4)} \\mathrm{V}`, motion.senseLabel]
-        : ['设目标 x 后播放', '或手拖铜棒'],
+      activeChannel: channelX,
+      formula: '\\mathcal{E}_i = B L v',
+      cells: motion ? [
+        { label: '位置区间', value: `${fmt(motion.x0, 2)} \\rightarrow ${fmt(motion.x1, 2)} \\mathrm{m}` },
+        { label: '位移 \\Delta x', value: `${motion.dx >= 0 ? '+' : ''}${fmt(motion.dx, 3)} \\mathrm{m}` },
+        { label: '磁感应强度 B', value: `${fmt(motion.B, 2)} \\mathrm{T}` },
+        { label: '耗时 \\Delta t', value: `${fmt(motion.dt, 3)} \\mathrm{s}` },
+      ] : null,
+      emptyTitle: '尚未记录动生测量',
+      hints: ['在左侧切换「动生」，设目标 x 后点击「自动演示」', '或直接拖动桌面铜棒 / 左下「实时 x」滑块'],
     },
     {
       title: '感生 · B 变化',
       data: induction,
-      lines: induction
-        ? [`B: ${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}`, `\\Delta B = ${fmt(induction.dB, 3)} \\quad \\Delta t = ${fmt(induction.dt, 3)} \\mathrm{s}`, `\\mathcal{E}_i = ${fmt(induction.emf, 4)} \\mathrm{V}`, induction.senseLabel]
-        : ['设目标 B 后播放', '或点「反向变化」'],
+      activeChannel: !channelX,
+      formula: '\\mathcal{E}_i = -S \\frac{\\Delta B}{\\Delta t}',
+      cells: induction ? [
+        { label: '磁场区间', value: `${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}` },
+        { label: '变化量 \\Delta B', value: `${induction.dB >= 0 ? '+' : ''}${fmt(induction.dB, 3)} \\mathrm{T}` },
+        { label: '回路面积 S', value: `${fmt(induction.area, 2)} \\mathrm{m}^2` },
+        { label: '耗时 \\Delta t', value: `${fmt(induction.dt, 3)} \\mathrm{s}` },
+      ] : null,
+      emptyTitle: '尚未记录感生测量',
+      hints: ['在左侧切换「感生」，设目标 B 后点击「自动演示」', '或点击「反向变化」/ 拖动「实时 B」滑块'],
     },
   ];
+
   cards.forEach((card, i) => {
-    const cx = x + i * (cardW + gap);
-    const cardAccent = i === 0 ? '#f472b6' : '#38bdf8';
+    const cyCard = bodyY + i * (cardH + gap);
+    const cardPad = Math.round(15 * uiScale);
+    const innerCardW = resW - cardPad * 2;
     ctx.fillStyle = P.panel;
-    ctx.strokeStyle = P.panelStroke;
-    ctx.lineWidth = isDisplay ? 1.6 : 1.2;
-    roundRect(ctx, cx, cy, cardW, cardH, 12);
+    ctx.strokeStyle = card.activeChannel ? primaryBlue : P.panelStroke;
+    ctx.lineWidth = card.activeChannel ? (isDisplay ? 2.0 : 1.6) : (isDisplay ? 1.6 : 1.2);
+    roundRect(ctx, resX, cyCard, resW, cardH, 12);
     ctx.fill();
     ctx.stroke();
-    drawMathFormula(ctx, card.title, cx + Math.round(12 * scale), cy + Math.round(12 * scale), {
-      fontSize: Math.round(17 * scale),
-      color: cardAccent,
+
+    // Header row
+    drawMathFormula(ctx, card.title, resX + cardPad, cyCard + Math.round(13 * uiScale), {
+      fontSize: Math.round(22 * uiScale),
+      color: card.activeChannel ? primaryBlue : P.title,
       align: 'left',
       textBaseline: 'top',
     });
-    const lineH = Math.round(26 * scale);
-    card.lines.forEach((line, li) => {
-      const lineX = cx + Math.round(12 * scale);
-      const lineY = cy + Math.round(42 * scale) + li * lineH;
-      const color = (li === 2 && card.data)
-        ? (_uiTheme === 'light' ? '#0284c7' : '#38bdf8')
-        : P.text;
-      const fontSize = (li === 2 && card.data)
-        ? Math.round(17 * scale)
-        : Math.round(15 * scale);
 
-      if (/[\\_^{}]|[A-Za-z]/.test(line)) {
-        drawMathFormula(ctx, line, lineX, lineY, {
-          fontSize,
-          color,
+    const badgeLabel = (animating && card.activeChannel)
+      ? '演示中'
+      : card.data ? '最近测量' : '待测量';
+    const badgeW = Math.round(86 * uiScale);
+    const badgeH = Math.round(28 * uiScale);
+    const badgeX = resX + resW - cardPad - badgeW;
+    const badgeY = cyCard + Math.round(12 * uiScale);
+    ctx.fillStyle = (card.data || (animating && card.activeChannel)) ? softFill : P.panelAlt;
+    roundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fill();
+    ctx.fillStyle = (card.data || (animating && card.activeChannel)) ? primaryBlue : P.muted;
+    ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeLabel, badgeX + badgeW / 2, badgeY + badgeH / 2);
+
+    const gridTop = cyCard + Math.round(48 * uiScale);
+    const cardBottom = cyCard + cardH - cardPad;
+
+    if (card.data && card.cells) {
+      const emfBannerH = Math.round(64 * uiScale);
+      const cellGap = Math.round(8 * uiScale);
+      const gridH = Math.max(88, cardBottom - emfBannerH - cellGap - gridTop);
+      const cellW = (innerCardW - cellGap) / 2;
+      const cellH = (gridH - cellGap) / 2;
+
+      card.cells.forEach((cell, ci) => {
+        const col = ci % 2;
+        const row = Math.floor(ci / 2);
+        const cellX = resX + cardPad + col * (cellW + cellGap);
+        const cellY = gridTop + row * (cellH + cellGap);
+        ctx.fillStyle = P.panelAlt;
+        roundRect(ctx, cellX, cellY, cellW, cellH, 9);
+        ctx.fill();
+
+        drawMathFormula(ctx, cell.label, cellX + Math.round(12 * uiScale), cellY + Math.round(7 * uiScale), {
+          fontSize: Math.round(14 * uiScale),
+          color: P.muted,
           align: 'left',
           textBaseline: 'top',
         });
-      } else {
-        ctx.fillStyle = color;
-        ctx.font = `bold ${fontSize}px "Microsoft YaHei", sans-serif`;
-        ctx.textBaseline = 'top';
-        ctx.fillText(line, lineX, lineY);
-      }
-    });
+        drawMathFormula(ctx, cell.value, cellX + Math.round(12 * uiScale), cellY + cellH - Math.round(10 * uiScale), {
+          fontSize: Math.round(20 * uiScale),
+          color: P.title,
+          align: 'left',
+          textBaseline: 'bottom',
+        });
+      });
+
+      const emfBoxY = cardBottom - emfBannerH;
+      ctx.fillStyle = softFill;
+      ctx.strokeStyle = softStroke;
+      ctx.lineWidth = 1.2;
+      roundRect(ctx, resX + cardPad, emfBoxY, innerCardW, emfBannerH, 10);
+      ctx.fill();
+      ctx.stroke();
+
+      drawMathFormula(
+        ctx,
+        `\\mathcal{E}_i = ${fmt(card.data.emf, 4)} \\mathrm{V}`,
+        resX + cardPad + Math.round(14 * uiScale),
+        emfBoxY + emfBannerH / 2,
+        {
+          fontSize: Math.round(25 * uiScale),
+          color: primaryBlue,
+          align: 'left',
+          textBaseline: 'middle',
+        },
+      );
+
+      ctx.fillStyle = P.title;
+      ctx.font = `bold ${Math.round(19 * uiScale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(card.data.senseLabel || '', resX + resW - cardPad - Math.round(14 * uiScale), emfBoxY + emfBannerH / 2);
+    } else {
+      const emptyH = Math.max(90, cardBottom - gridTop);
+      ctx.fillStyle = P.panelAlt;
+      roundRect(ctx, resX + cardPad, gridTop, innerCardW, emptyH, 10);
+      ctx.fill();
+
+      const midX = resX + resW / 2;
+      const midY = gridTop + emptyH / 2;
+      ctx.fillStyle = P.title;
+      ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(card.emptyTitle, midX, midY - Math.round(38 * uiScale));
+
+      ctx.fillStyle = P.muted;
+      ctx.font = `600 ${Math.round(15 * uiScale)}px "Microsoft YaHei", sans-serif`;
+      ctx.fillText(card.hints[0], midX, midY - Math.round(8 * uiScale));
+      ctx.fillText(card.hints[1], midX, midY + Math.round(16 * uiScale));
+
+      drawMathFormula(ctx, card.formula, midX, midY + Math.round(48 * uiScale), {
+        fontSize: Math.round(20 * uiScale),
+        color: primaryBlue,
+        align: 'center',
+        textBaseline: 'middle',
+      });
+    }
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   });
 }
 
 /**
- * Compact induced-E content screen (thermo-style density):
- * header + metric strip → 2×2 sliders → chip toolbar → E–r chart → actions.
+ * Induced electric field workstation:
+ * top 4-cell telemetry strip -> left dual control sub-cards (B/R + probe controls)
+ * -> right live force/field analysis + E_k–r textbook curve in unified blue palette.
  */
 function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const { hits, innerX, innerW, contentTop, contentH, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
+  const isLight = _uiTheme === 'light';
   const isDisplay = cfg.surface === 'display';
+  const uiScale = Math.max(0.70, Math.min(innerW / 1080, contentH / 640));
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
-  const scale = holoUiScale(cfg.surface);
-  const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-  const gap = Math.round(10 * scale);
+  const fmt = (value, digits = 2) => Number(value || 0).toFixed(digits);
+
+  const primaryBlue = isLight ? '#0284c7' : '#38bdf8';
+  const deepBlue = isLight ? '#0369a1' : '#7dd3fc';
+  const probeBlue = isLight ? '#1e40af' : '#bae6fd';
+  const softFill = isLight ? 'rgba(14, 165, 233, 0.10)' : 'rgba(56, 189, 248, 0.14)';
+  const softStroke = isLight ? 'rgba(2, 132, 199, 0.45)' : 'rgba(56, 189, 248, 0.42)';
+  const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+
   const x = innerX;
   const w = innerW;
-  const isAuto = d.auto === true;
-  const senseText = d.sense === 'cw' ? '顺时针' : d.sense === 'ccw' ? '逆时针' : '无';
-  const q0Pos = Number(d.probe?.q0 || 0) >= 0;
+  const gap = Math.round(12 * uiScale);
+  const pad = Math.round(13 * uiScale);
 
-  // —— Compact metric strip ——
+  const currR = Math.max(0.2, Number(d.R ?? 2.0));
+  const valB = Number(d.B || 0);
+  const dBdt = Number(d.dBdt || 0);
+  const absD = Math.abs(dBdt);
+  const isAuto = d.auto === true;
+  const showB = d.showB !== false;
+  const senseText = d.sense === 'cw' ? '顺时针' : d.sense === 'ccw' ? '逆时针' : '无感生';
+  const probeQ0 = Number(d.probe?.q0 ?? 1);
+  const q0Pos = probeQ0 >= 0;
+  const pr = Number(d.probeR ?? 1.2);
+  const pe = Number(d.magnitudeE || 0);
+  const forceE = Math.abs(probeQ0) * pe;
+
+  // —— 1. Top Telemetry Strip ——
   const statY = contentTop;
-  const statH = Math.round(66 * scale);
+  const statH = Math.round(72 * uiScale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 1.6 : 1.2;
-  roundRect(ctx, x, statY, w, statH, 10);
+  roundRect(ctx, x, statY, w, statH, 12);
   ctx.fill();
   ctx.stroke();
-  const probeQ0 = Number(d.probe?.q0 ?? 1);
+
   const stats = [
-    ['q_0', `${probeQ0 >= 0 ? '+' : ''}${fmt(probeQ0, 1)} \\mu\\mathrm{C}`],
-    ['R', `${fmt(d.R, 2)} \\mathrm{m}`],
-    ['B', `${fmt(d.B, 2)} \\mathrm{T}`],
-    ['\\frac{\\mathrm{d}B}{\\mathrm{d}t}', `${fmt(d.dBdt, 2)} \\mathrm{T/s}`],
+    { label: '磁场半径 R', value: `${fmt(currR, 2)} m`, color: P.text },
+    { label: '实时磁场 B', value: `${valB >= 0 ? '+' : ''}${fmt(valB, 2)} T`, color: primaryBlue },
+    { label: '变化率 dB/dt', value: `${dBdt >= 0 ? '+' : ''}${fmt(dBdt, 2)} T/s`, color: primaryBlue },
+    { label: '感生场强 E_k', value: `${fmt(pe, 2)} V/m`, color: primaryBlue },
   ];
-  stats.forEach(([label, value], i) => {
-    const colW = w / stats.length;
-    const cx = x + i * colW + colW / 2;
-    const labelY = statY + Math.round(statH * 0.12);
-    const valY = statY + Math.round(statH * 0.48);
-    drawMathFormula(ctx, label, cx, labelY, {
-      fontSize: Math.round(16 * scale),
+  const colW = w / stats.length;
+  stats.forEach((st, i) => {
+    const colX = x + i * colW;
+    const cx = colX + colW / 2;
+    if (i > 0) {
+      ctx.strokeStyle = dividerStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(colX, statY + Math.round(12 * uiScale));
+      ctx.lineTo(colX, statY + statH - Math.round(12 * uiScale));
+      ctx.stroke();
+    }
+    drawMathFormula(ctx, st.label, cx, statY + Math.round(10 * uiScale), {
+      fontSize: Math.round(16 * uiScale),
       color: P.muted,
       align: 'center',
       textBaseline: 'top',
     });
-    drawMathFormula(ctx, value, cx, valY, {
-      fontSize: Math.round(15 * scale),
-      color: P.text,
-      align: 'center',
-      textBaseline: 'top',
-    });
+    ctx.fillStyle = st.color;
+    let valPx = Math.round(24 * uiScale);
+    ctx.font = `bold ${valPx}px "Microsoft YaHei", sans-serif`;
+    while (valPx > 14 && ctx.measureText(st.value).width > colW - Math.round(16 * uiScale)) {
+      valPx -= 1;
+      ctx.font = `bold ${valPx}px "Microsoft YaHei", sans-serif`;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(st.value, cx, statY + Math.round(35 * uiScale));
   });
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
 
-  // —— Params live on the tabletop desk panel; screen keeps chart ——
-  let cy = statY + statH + gap;
+  // —— 2. Two-column Workspace ——
+  const bodyY = statY + statH + gap;
+  const bodyH = Math.max(260, contentTop + contentH - bodyY);
+  const ctrlW = Math.round((w - gap) * 0.47);
+  const resX = x + ctrlW + gap;
+  const resW = w - ctrlW - gap;
 
-  // —— E–r textbook chart fills remaining space ——
-  const chartH = Math.max(100, contentTop + contentH - cy);
+  const btnGap = Math.round(8 * uiScale);
+  const sliderGap = Math.round(8 * uiScale);
+  const sliderInset = Math.round(6 * uiScale);
+  const subHeadH = Math.round(26 * uiScale);
+  const actBtnH = Math.round(42 * uiScale);
+  const utilH = Math.round(40 * uiScale);
+  const subGap = Math.round(10 * uiScale);
+  const subPad = Math.round(12 * uiScale);
+
+  const fixedCtrlH = (
+    subPad * 4
+    + subHeadH * 2
+    + actBtnH
+    + utilH
+    + subGap
+    + Math.round(8 * uiScale) * 4
+    + sliderGap * 2
+  );
+  const sliderH = Math.max(
+    Math.round(52 * uiScale),
+    Math.floor((bodyH - fixedCtrlH) / 4),
+  );
+  const groupAH = (
+    subPad * 2
+    + subHeadH
+    + Math.round(8 * uiScale)
+    + actBtnH
+    + Math.round(8 * uiScale)
+    + sliderH * 2
+    + sliderGap
+  );
+  const groupBY = bodyY + groupAH + subGap;
+  const groupBH = Math.max(120, bodyY + bodyH - groupBY);
+
+  const cx = x + pad;
+  const cw = ctrlW - pad * 2;
+  const halfBtnW = (cw - btnGap) / 2;
+  const btnFontPx = Math.round(18 * uiScale);
+
+  const drawSliderBox = (opts) => {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.26)' : 'rgba(56, 189, 248, 0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx, opts.y, cw, opts.h, 10);
+    ctx.fill();
+    ctx.stroke();
+    drawParamSlider(ctx, hits, {
+      ...opts,
+      x: cx + sliderInset,
+      w: cw - sliderInset * 2,
+      accentHex: primaryBlue,
+      largeType: true,
+      hideRange: true,
+    });
+  };
+
+  // Sub-card A: Field parameters & mode
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
-  roundRect(ctx, x, cy, w, chartH, 12);
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, bodyY, ctrlW, groupAH, 12);
   ctx.fill();
   ctx.stroke();
+
+  let gy = bodyY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('磁场参数与变化', cx, gy + Math.round(2 * uiScale));
+  ctx.fillStyle = primaryBlue;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(isAuto ? '模式: 自动变化' : '模式: 静态调节', cx + cw, gy + Math.round(4 * uiScale));
+  ctx.textAlign = 'left';
+  gy += subHeadH + Math.round(8 * uiScale);
+
+  drawHallButton(ctx, hits, cx, gy, halfBtnW, actBtnH, isAuto ? '停止变化' : '自动变化', 'induced-e-mode', { auto: !isAuto }, primaryBlue, isAuto, {
+    fontPx: btnFontPx,
+  });
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, gy, halfBtnW, actBtnH, '反向 dB/dt', 'induced-e-flip', {}, primaryBlue, false, {
+    fontPx: btnFontPx,
+  });
+  gy += actBtnH + Math.round(8 * uiScale);
+
+  drawSliderBox({
+    y: gy,
+    h: sliderH,
+    label: '磁场半径 R',
+    value: currR,
+    min: 0.8,
+    max: 3.0,
+    step: 0.05,
+    setAction: 'induced-e-set',
+    key: 'R',
+    unit: 'm',
+    digits: 2,
+  });
+  gy += sliderH + sliderGap;
+
+  drawSliderBox({
+    y: gy,
+    h: sliderH,
+    label: '变化率 dB/dt',
+    value: dBdt,
+    min: -6.25,
+    max: 6.25,
+    step: 0.05,
+    setAction: 'induced-e-set',
+    key: 'dBdt',
+    unit: 'T/s',
+    digits: 2,
+  });
+
+  // Sub-card B: Probe & system toggles
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, groupBY, ctrlW, groupBH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  let gyB = groupBY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('试探电荷与辅助', cx, gyB + Math.round(2 * uiScale));
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`q₀ = ${q0Pos ? '+' : '-'}${fmt(Math.abs(probeQ0), 1)} μC`, cx + cw, gyB + Math.round(4 * uiScale));
+  ctx.textAlign = 'left';
+  gyB += subHeadH + Math.round(8 * uiScale);
+
+  drawSliderBox({
+    y: gyB,
+    h: sliderH,
+    label: '试探距离 r',
+    value: pr,
+    min: 0.15,
+    max: 4.20,
+    step: 0.05,
+    setAction: 'induced-e-set',
+    key: 'probeR',
+    unit: 'm',
+    digits: 2,
+  });
+  gyB += sliderH + sliderGap;
+
+  drawSliderBox({
+    y: gyB,
+    h: sliderH,
+    label: '试探电量 |q_0|',
+    value: Math.abs(probeQ0),
+    min: 0.2,
+    max: 3.0,
+    step: 0.1,
+    setAction: 'induced-e-set',
+    key: 'q0',
+    unit: 'μC',
+    digits: 1,
+  });
+
+  const utilY = groupBY + groupBH - subPad - utilH;
+  const triW = (cw - btnGap * 2) / 3;
+  const utilPx = Math.round(16 * uiScale);
+  drawHallButton(ctx, hits, cx, utilY, triW, utilH, `q₀: ${q0Pos ? '正(+)' : '负(−)'}`, 'induced-e-probe-sign', { sign: q0Pos ? -1 : 1 }, primaryBlue, q0Pos, {
+    fontPx: utilPx,
+  });
+  drawHallButton(ctx, hits, cx + triW + btnGap, utilY, triW, utilH, `磁场: ${showB ? '显示' : '隐藏'}`, 'induced-e-toggle', { key: 'B' }, primaryBlue, showB, {
+    fontPx: utilPx,
+  });
+  drawHallButton(ctx, hits, cx + (triW + btnGap) * 2, utilY, triW, utilH, '重置实验', 'induced-e-reset', {}, primaryBlue, false, {
+    fontPx: utilPx,
+  });
+
+  // —— Right Column Top: Live Field & Force Analysis Card ——
+  const topCardH = Math.round(112 * uiScale);
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, resX, bodyY, resW, topCardH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const rx = resX + pad;
+  const rw = resW - pad * 2;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('涡旋电场分布与受力', rx, bodyY + Math.round(12 * uiScale));
+
+  const badgeW = Math.round(126 * uiScale);
+  const badgeH = Math.round(24 * uiScale);
+  ctx.fillStyle = softFill;
+  ctx.strokeStyle = softStroke;
+  ctx.lineWidth = 1;
+  roundRect(ctx, rx + rw - badgeW, bodyY + Math.round(9 * uiScale), badgeW, badgeH, 7);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = deepBlue;
+  ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`绕向: ${senseText}`, rx + rw - badgeW / 2, bodyY + Math.round(25 * uiScale));
+  ctx.textAlign = 'left';
+
+  const miniY = bodyY + Math.round(42 * uiScale);
+  const miniH = topCardH - Math.round(52 * uiScale);
+  const miniW = (rw - btnGap) / 2;
+  const boxes = [
+    { k: pr <= currR ? '位置 r ≤ R (内区)' : '位置 r > R (外区)', v: `r = ${fmt(pr, 2)} m · E_k = ${fmt(pe, 2)}`, c: P.text },
+    { k: `试探受力 |F_e| (${q0Pos ? '同向' : '反向'})`, v: `${fmt(forceE, 3)} μN`, c: primaryBlue },
+  ];
+  boxes.forEach((bx, idx) => {
+    const bxX = rx + idx * (miniW + btnGap);
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.24)' : 'rgba(56, 189, 248, 0.18)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bxX, miniY, miniW, miniH, 9);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(bx.k, bxX + Math.round(10 * uiScale), miniY + Math.round(19 * uiScale));
+
+    ctx.fillStyle = bx.c;
+    let bPx = Math.round(19 * uiScale);
+    ctx.font = `bold ${bPx}px "Microsoft YaHei", sans-serif`;
+    while (bPx > 12 && ctx.measureText(bx.v).width > miniW - Math.round(18 * uiScale)) {
+      bPx -= 1;
+      ctx.font = `bold ${bPx}px "Microsoft YaHei", sans-serif`;
+    }
+    ctx.fillText(bx.v, bxX + Math.round(10 * uiScale), miniY + miniH - Math.round(12 * uiScale));
+  });
+
+  // —— Right Column Bottom: E_k–r Textbook Curve ——
+  const chartY = bodyY + topCardH + gap;
+  const chartH = Math.max(180, bodyY + bodyH - chartY);
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, resX, chartY, resW, chartH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('E_k – r 径向分布曲线', rx, chartY + Math.round(25 * uiScale));
 
   const profile = Array.isArray(d.profile) ? d.profile : [];
-  const currR = Math.max(0.2, Number(d.R || 2));
-  const absD = Math.abs(Number(d.dBdt || 0));
-
-  // Theoretical peak height E_max = 0.5 * R * |dBdt|
   const theoreticalPeak = 0.5 * currR * absD;
-
-  // Probe charge position & value
-  const pr = Number(d.probeR || 0);
-  const pe = Number(d.magnitudeE || 0);
-
-  // 全量程基准（R_max=3.2, |dB/dt|_max=6.25 对应 E_max=10.0 V/m）：
-  // 基准量程定为 10.5 V/m，确保滑块拉到绝对最大值时图像也完整容纳且留有清晰顶部余量，同时保证改变 R 绝不影响内区直线斜率
   const E_SCALE_MAX = Math.max(10.5, Math.max(theoreticalPeak, pe) * 1.05);
 
-  const plotX = x + Math.round(58 * scale);
-  const plotY = cy + Math.round(18 * scale);
-  const plotW = w - Math.round(84 * scale);
-  const plotH = chartH - Math.round(64 * scale);
+  ctx.fillStyle = deepBlue;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`峰值 E_max = ${fmt(theoreticalPeak, 2)} V/m`, rx + rw, chartY + Math.round(25 * uiScale));
+  ctx.textAlign = 'left';
 
-  const axisColor = _uiTheme === 'light' ? 'rgba(100,116,139,.75)' : 'rgba(148,163,184,.65)';
+  const plotX = resX + Math.round(74 * uiScale);
+  const plotY = chartY + Math.round(52 * uiScale);
+  const plotW = resW - Math.round(108 * uiScale);
+  const plotH = chartH - Math.round(98 * uiScale);
+
+  // Subtle horizontal gridlines
+  ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.20)' : 'rgba(148, 163, 184, 0.14)';
+  ctx.lineWidth = 1;
+  for (let g = 1; g <= 3; g++) {
+    const gyLine = plotY + plotH - (g / 3) * (plotH * 0.88);
+    ctx.beginPath();
+    ctx.moveTo(plotX, gyLine);
+    ctx.lineTo(plotX + plotW, gyLine);
+    ctx.stroke();
+  }
+
+  const axisColor = isLight ? 'rgba(71, 85, 105, 0.82)' : 'rgba(148, 163, 184, 0.72)';
   ctx.strokeStyle = axisColor;
   ctx.fillStyle = axisColor;
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = 1.6;
 
-  // Y-axis line + Arrow ▲
+  // Y-axis + Arrow
   ctx.beginPath();
   ctx.moveTo(plotX, plotY + plotH);
-  ctx.lineTo(plotX, plotY - Math.round(8 * scale));
+  ctx.lineTo(plotX, plotY - Math.round(8 * uiScale));
   ctx.stroke();
-
   ctx.beginPath();
-  ctx.moveTo(plotX - Math.round(4.5 * scale), plotY - Math.round(6 * scale));
-  ctx.lineTo(plotX, plotY - Math.round(15 * scale));
-  ctx.lineTo(plotX + Math.round(4.5 * scale), plotY - Math.round(6 * scale));
+  ctx.moveTo(plotX - Math.round(4.5 * uiScale), plotY - Math.round(6 * uiScale));
+  ctx.lineTo(plotX, plotY - Math.round(15 * uiScale));
+  ctx.lineTo(plotX + Math.round(4.5 * uiScale), plotY - Math.round(6 * uiScale));
   ctx.closePath();
   ctx.fill();
 
-  // X-axis line + Arrow ►
+  // X-axis + Arrow
   ctx.beginPath();
   ctx.moveTo(plotX, plotY + plotH);
-  ctx.lineTo(plotX + plotW + Math.round(10 * scale), plotY + plotH);
+  ctx.lineTo(plotX + plotW + Math.round(10 * uiScale), plotY + plotH);
   ctx.stroke();
-
   ctx.beginPath();
-  ctx.moveTo(plotX + plotW + Math.round(6 * scale), plotY + plotH - Math.round(4.5 * scale));
-  ctx.lineTo(plotX + plotW + Math.round(15 * scale), plotY + plotH);
-  ctx.lineTo(plotX + plotW + Math.round(6 * scale), plotY + plotH + Math.round(4.5 * scale));
+  ctx.moveTo(plotX + plotW + Math.round(6 * uiScale), plotY + plotH - Math.round(4.5 * uiScale));
+  ctx.lineTo(plotX + plotW + Math.round(15 * uiScale), plotY + plotH);
+  ctx.lineTo(plotX + plotW + Math.round(6 * uiScale), plotY + plotH + Math.round(4.5 * uiScale));
   ctx.closePath();
   ctx.fill();
 
-  // Axis labels (E_k at Y-top, r at X-right, 0 at origin)
   ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText('0', plotX - Math.round(12 * scale), plotY + plotH + Math.round(12 * scale));
+  ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('0', plotX - Math.round(14 * uiScale), plotY + plotH + Math.round(15 * uiScale));
 
-  drawMathFormula(
-    ctx,
-    'E_k',
-    plotX - Math.round(24 * scale),
-    plotY - Math.round(18 * scale),
-    {
-      fontSize: Math.round(13 * scale),
-      color: P.text,
-      align: 'left',
-      textBaseline: 'top',
-    }
-  );
-
-  drawMathFormula(
-    ctx,
-    'r',
-    plotX + plotW + Math.round(18 * scale),
-    plotY + plotH,
-    {
-      fontSize: Math.round(13 * scale),
-      color: P.text,
-      align: 'left',
-      textBaseline: 'middle',
-    }
-  );
+  drawMathFormula(ctx, 'E_k', plotX - Math.round(30 * uiScale), plotY - Math.round(20 * uiScale), {
+    fontSize: Math.round(15 * uiScale),
+    color: P.text,
+    align: 'left',
+    textBaseline: 'top',
+  });
+  drawMathFormula(ctx, 'r', plotX + plotW + Math.round(18 * uiScale), plotY + plotH, {
+    fontSize: Math.round(15 * uiScale),
+    color: P.text,
+    align: 'left',
+    textBaseline: 'middle',
+  });
 
   const rMax = 4.8;
   const rLineX = plotX + (currR / rMax) * plotW;
   const peakPy = plotY + plotH - (theoreticalPeak / E_SCALE_MAX) * (plotH * 0.88);
-  const prx = plotX + (pr / rMax) * plotW;
+  const prx = plotX + (Math.min(rMax, pr) / rMax) * plotW;
   const pry = plotY + plotH - (pe / E_SCALE_MAX) * (plotH * 0.88);
 
-  // 1. Plot E-r Curve
+  // Soft area fill under E_k-r curve + unified blue curve
   if (profile.length > 1) {
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = Math.max(2, Math.round(2.6 * scale));
     ctx.beginPath();
     profile.forEach((pt, i) => {
-      const px = plotX + (pt.r / rMax) * plotW;
+      const px = plotX + (Math.min(rMax, pt.r) / rMax) * plotW;
+      const py = plotY + plotH - (pt.E / E_SCALE_MAX) * (plotH * 0.88);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    const lastPt = profile[profile.length - 1];
+    const lastX = plotX + (Math.min(rMax, lastPt.r) / rMax) * plotW;
+    ctx.lineTo(lastX, plotY + plotH);
+    ctx.lineTo(plotX, plotY + plotH);
+    ctx.closePath();
+    ctx.fillStyle = isLight ? 'rgba(2, 132, 199, 0.10)' : 'rgba(56, 189, 248, 0.12)';
+    ctx.fill();
+
+    ctx.strokeStyle = primaryBlue;
+    ctx.lineWidth = Math.max(2.4, Math.round(3.0 * uiScale));
+    ctx.beginPath();
+    profile.forEach((pt, i) => {
+      const px = plotX + (Math.min(rMax, pt.r) / rMax) * plotW;
       const py = plotY + plotH - (pt.E / E_SCALE_MAX) * (plotH * 0.88);
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
@@ -747,70 +1341,51 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
     ctx.stroke();
   }
 
-  // 3. Formula annotations along curve (clean & borderless, collision-free)
-  if (rLineX > plotX + Math.round(20 * scale) && absD > 0.01) {
-    const midR = currR * 0.5;
+  // Proportionality labels
+  if (rLineX > plotX + Math.round(28 * uiScale) && absD > 0.01) {
+    const midR = currR * 0.52;
     const midX = plotX + (midR / rMax) * plotW;
     const midE = 0.5 * midR * absD;
     const midY = plotY + plotH - (midE / E_SCALE_MAX) * (plotH * 0.88);
-
-    // Collision check with probe dot
-    const isProbeCloseToFormula = Math.hypot(prx - midX, pry - midY) < Math.round(36 * scale);
-    const labelOffsetX = isProbeCloseToFormula ? Math.round(-24 * scale) : 0;
-    const labelOffsetY = isProbeCloseToFormula ? Math.round(-18 * scale) : Math.round(-14 * scale);
-
+    const closeProbe = Math.hypot(prx - midX, pry - midY) < Math.round(42 * uiScale);
     drawMathFormula(
       ctx,
       'E_k \\propto r',
-      midX + labelOffsetX,
-      midY + labelOffsetY,
+      midX + (closeProbe ? Math.round(-22 * uiScale) : 0),
+      midY - Math.round((closeProbe ? 20 : 14) * uiScale),
       {
-        fontSize: Math.round(12 * scale),
-        color: '#ef4444',
+        fontSize: Math.round(14 * uiScale),
+        color: deepBlue,
         align: 'center',
         textBaseline: 'bottom',
-      }
+      },
     );
   }
-
-  if (rLineX < plotX + plotW - Math.round(30 * scale) && absD > 0.01) {
-    const outR = Math.min(rMax * 0.88, currR * 1.8);
+  if (rLineX < plotX + plotW - Math.round(36 * uiScale) && absD > 0.01) {
+    const outR = Math.min(rMax * 0.84, currR * 1.65);
     const outX = plotX + (outR / rMax) * plotW;
     const outE = (0.5 * currR * currR * absD) / outR;
     const outY = plotY + plotH - (outE / E_SCALE_MAX) * (plotH * 0.88);
     drawMathFormula(
       ctx,
       'E_k \\propto \\frac{1}{r}',
-      outX + Math.round(10 * scale),
-      outY - Math.round(14 * scale),
+      outX + Math.round(10 * uiScale),
+      outY - Math.round(14 * uiScale),
       {
-        fontSize: Math.round(12 * scale),
-        color: '#ef4444',
+        fontSize: Math.round(14 * uiScale),
+        color: deepBlue,
         align: 'center',
         textBaseline: 'bottom',
-      }
+      },
     );
   }
 
-  // 4. PEAK POINT GUIDELINES & AXIS LABELS
+  // Peak (R, E_max) dashed guide & ticks
   if (theoreticalPeak > 0.01) {
     ctx.save();
-    const dashPattern = [Math.round(6 * scale), Math.round(4 * scale)];
-
-    // Background dark contrast line for peak guidelines
-    ctx.strokeStyle = _uiTheme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.85)';
-    ctx.lineWidth = Math.round(3.6 * scale);
-    ctx.setLineDash(dashPattern);
-    ctx.beginPath();
-    ctx.moveTo(plotX, peakPy);
-    ctx.lineTo(rLineX, peakPy);
-    ctx.moveTo(rLineX, plotY + plotH);
-    ctx.lineTo(rLineX, peakPy);
-    ctx.stroke();
-
-    // Solid bright red dashed line for peak guidelines
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = Math.round(2.2 * scale);
+    ctx.strokeStyle = primaryBlue;
+    ctx.lineWidth = Math.round(1.8 * uiScale);
+    ctx.setLineDash([Math.round(6 * uiScale), Math.round(4 * uiScale)]);
     ctx.beginPath();
     ctx.moveTo(plotX, peakPy);
     ctx.lineTo(rLineX, peakPy);
@@ -820,65 +1395,37 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
     ctx.setLineDash([]);
     ctx.restore();
 
-    // Y-axis tick & label for Peak (strictly on the left of Y-axis)
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.moveTo(plotX - Math.round(4 * scale), peakPy);
-    ctx.lineTo(plotX, peakPy);
-    ctx.stroke();
-
-    ctx.fillStyle = '#ef4444';
-    ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillStyle = primaryBlue;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${fmt(theoreticalPeak, 2)} V/m`, plotX - Math.round(6 * scale), peakPy);
-
-    // X-axis tick & label for R (strictly below X-axis)
-    ctx.beginPath();
-    ctx.moveTo(rLineX, plotY + plotH);
-    ctx.lineTo(rLineX, plotY + plotH + Math.round(4 * scale));
-    ctx.stroke();
+    ctx.fillText(`${fmt(theoreticalPeak, 2)}`, plotX - Math.round(7 * uiScale), peakPy);
 
     drawMathFormula(
       ctx,
-      `R = ${fmt(currR, 2)}\\mathrm{m}`,
+      `R=${fmt(currR, 2)}`,
       rLineX,
-      plotY + plotH + Math.round(6 * scale),
+      plotY + plotH + Math.round(7 * uiScale),
       {
-        fontSize: Math.round(11 * scale),
-        color: accentHex,
+        fontSize: Math.round(13 * uiScale),
+        color: primaryBlue,
         align: 'center',
         textBaseline: 'top',
-      }
+      },
     );
 
-    // Peak Dot on curve (no floating text box!)
-    ctx.fillStyle = '#ef4444';
+    ctx.fillStyle = primaryBlue;
     ctx.beginPath();
-    ctx.arc(rLineX, peakPy, Math.round(5 * scale), 0, Math.PI * 2);
+    ctx.arc(rLineX, peakPy, Math.round(5.5 * uiScale), 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // 5. PROBE POINT GUIDELINES & AXIS LABELS
+  // Probe (r, E_k) dashed guide & dot (deep indigo/slate blue so distinct from R without gaudy hues)
   if (pr > 0.01) {
     ctx.save();
-    const dashPattern = [Math.round(6 * scale), Math.round(4 * scale)];
-
-    // Background dark contrast line for probe guidelines
-    ctx.strokeStyle = _uiTheme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.85)';
-    ctx.lineWidth = Math.round(3.6 * scale);
-    ctx.setLineDash(dashPattern);
-    ctx.beginPath();
-    ctx.moveTo(prx, pry);
-    ctx.lineTo(prx, plotY + plotH);
-    ctx.moveTo(prx, pry);
-    ctx.lineTo(plotX, pry);
-    ctx.stroke();
-
-    // Solid bright amber dashed line for probe guidelines
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = Math.round(2.2 * scale);
+    ctx.strokeStyle = probeBlue;
+    ctx.lineWidth = Math.round(1.8 * uiScale);
+    ctx.setLineDash([Math.round(5 * uiScale), Math.round(4 * uiScale)]);
     ctx.beginPath();
     ctx.moveTo(prx, pry);
     ctx.lineTo(prx, plotY + plotH);
@@ -888,66 +1435,38 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
     ctx.setLineDash([]);
     ctx.restore();
 
-    // Y-axis Probe Tick & Label (strictly on the left of Y-axis)
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(plotX - Math.round(4 * scale), pry);
-    ctx.lineTo(plotX, pry);
-    ctx.stroke();
-
-    // Check collision with Peak Y label
-    const isYTooClose = Math.abs(pry - peakPy) < Math.round(14 * scale);
-    const yLabelOffsetY = isYTooClose ? (pry > peakPy ? Math.round(10 * scale) : Math.round(-10 * scale)) : 0;
-
-    ctx.fillStyle = '#d97706';
-    ctx.font = `bold ${Math.round(10.5 * scale)}px "Microsoft YaHei", sans-serif`;
+    const isYTooClose = Math.abs(pry - peakPy) < Math.round(16 * uiScale);
+    const yOff = isYTooClose ? (pry >= peakPy ? Math.round(13 * uiScale) : Math.round(-13 * uiScale)) : 0;
+    ctx.fillStyle = probeBlue;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${fmt(pe, 2)} V/m`, plotX - Math.round(6 * scale), pry + yLabelOffsetY);
+    ctx.fillText(`${fmt(pe, 2)}`, plotX - Math.round(7 * uiScale), pry + yOff);
 
-    // X-axis Probe Tick & Label (strictly below X-axis)
-    ctx.beginPath();
-    ctx.moveTo(prx, plotY + plotH);
-    ctx.lineTo(prx, plotY + plotH + Math.round(4 * scale));
-    ctx.stroke();
-
-    const isXTooClose = Math.abs(prx - rLineX) < Math.round(48 * scale);
-    const xLabelOffsetY = isXTooClose ? Math.round(16 * scale) : 0;
-
+    const isXTooClose = Math.abs(prx - rLineX) < Math.round(58 * uiScale);
     drawMathFormula(
       ctx,
-      `r = ${fmt(pr, 2)}\\mathrm{m}`,
+      `r=${fmt(pr, 2)}`,
       prx,
-      plotY + plotH + Math.round(6 * scale) + xLabelOffsetY,
+      plotY + plotH + Math.round(7 * uiScale) + (isXTooClose ? Math.round(16 * uiScale) : 0),
       {
-        fontSize: Math.round(11 * scale),
-        color: '#d97706',
+        fontSize: Math.round(13 * uiScale),
+        color: probeBlue,
         align: 'center',
         textBaseline: 'top',
-      }
+      },
     );
 
-    // Probe Dot on curve (no floating text box!)
-    ctx.fillStyle = '#fbbf24';
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(prx, pry, Math.round(5 * scale), 0, Math.PI * 2);
+    ctx.arc(prx, pry, Math.round(6 * uiScale), 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = probeBlue;
+    ctx.lineWidth = Math.max(2, Math.round(2.4 * uiScale));
+    ctx.stroke();
   }
-
-  // Title positioned at bottom-center with clean vertical clearance from X-axis ticks
-  drawMathFormula(
-    ctx,
-    'E_k-r \\text{ 关系曲线}',
-    x + w / 2,
-    cy + chartH - Math.round(6 * scale),
-    {
-      fontSize: Math.round(13 * scale),
-      color: P.title || P.text,
-      align: 'center',
-      textBaseline: 'bottom',
-    }
-  );
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 }
 
 function drawGaussExperiment(ctx, _W, _H, cfg) {
@@ -1228,29 +1747,35 @@ function drawGaussExperiment(ctx, _W, _H, cfg) {
 }
 
 /**
- * Compact electric-field HUD: formula + source tools.
- * Probe charge (q₀ / r / E / F) is drawn as a live 3D label above the sphere —
- * not duplicated on this content screen.
+ * Electric-field workstation HUD:
+ * unified blue palette with stitched Gauss shape/radius, source charge |q_i|, and probe |q_0| sliders.
  */
 function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const { hits, innerX, innerW, contentTop, contentH, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
+  const isLight = _uiTheme === 'light';
   const isDisplay = cfg.surface === 'display';
-  const rawScale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
-  const scale = isDisplay ? Math.min(rawScale, 1.30) : rawScale;
+  const uiScale = Math.max(0.70, Math.min(innerW / 1080, contentH / 640));
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
   const charges = Array.isArray(d.charges) ? d.charges : [];
   const selected = charges.find((charge) => charge.id === d.selectedId) || null;
   const probe = d.probe || { x: 0, y: 0, z: 0, q0: 1 };
   const fmt = (value, digits = 2) => Number(value || 0).toFixed(digits);
-  const pad = Math.round(14 * scale);
-  const gap = Math.round(10 * scale);
-  const btnH = Math.round(36 * scale);
-  const chipH = Math.round(36 * scale);
-  const bottom = contentTop + contentH;
 
-  // 高斯面所包围的净电荷与电通量 (Φ_E = Σq_i / ε_0)
+  const primaryBlue = isLight ? '#0284c7' : '#38bdf8';
+  const deepBlue = isLight ? '#0369a1' : '#7dd3fc';
+  const softFill = isLight ? 'rgba(14, 165, 233, 0.10)' : 'rgba(56, 189, 248, 0.14)';
+  const softStroke = isLight ? 'rgba(2, 132, 199, 0.45)' : 'rgba(56, 189, 248, 0.42)';
+  const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+
+  const x = innerX;
+  const w = innerW;
+  const gap = Math.round(12 * uiScale);
+  const pad = Math.round(13 * uiScale);
+
   const radius = Number(d.radius || 2.4);
   const qEnc = Number.isFinite(Number(d.qEnclosed))
     ? Number(d.qEnclosed)
@@ -1259,15 +1784,6 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const fluxVal = Number.isFinite(Number(d.flux))
     ? Number(d.flux)
     : (qEncVal * 1e-6) / (1 / (4 * Math.PI * 9.0e9));
-
-  // ── Row 0: 3 等距分布常数与总结栏 ──
-  const headH = Math.round(52 * scale);
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = isDisplay ? 2.0 : 1.2;
-  roundRect(ctx, innerX, contentTop, innerW, headH, 10);
-  ctx.fill();
-  ctx.stroke();
 
   const formatFluxFormula = (f) => {
     const v = Number(f || 0);
@@ -1284,202 +1800,413 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     return `\\Phi_{E} = ${sign}${mant.toFixed(2)}\\times 10^{${exp}} \\text{ N}\\cdot\\text{m}^{2}/\\text{C}`;
   };
 
-  const headItems = [
-    `\\varepsilon_{0} = 8.85\\times 10^{-12} \\text{ F/m}`,
-    `\\Sigma q_{i} = ${qEncVal >= 0 ? '+' : ''}${fmt(qEncVal, 1)} \\mu\\text{C}`,
-    formatFluxFormula(fluxVal),
-  ];
-
-  const secW = (innerW - pad * 2) / headItems.length;
-  const headFontSize = Math.round(18 * scale);
-
-  headItems.forEach((text, i) => {
-    const cx = innerX + pad + (i + 0.5) * secW;
-    drawMathFormula(
-      ctx,
-      text,
-      cx,
-      contentTop + headH / 2,
-      { fontSize: headFontSize, color: P.title, align: 'center', textBaseline: 'middle', fontWeight: 'bold' },
-    );
-  });
-
-  // ── Box 1: Action Buttons + Toggles + Charge Matrix (Outer container) ──
-  let y = contentTop + headH + gap;
-  const chipGap = Math.round(6 * scale);
-  const maxChips = 12;
-
-  // Row A: +正电荷 / +负电荷 / 重置
-  const actionItems = [
-    { label: '+ 正电荷', action: 'electric-add', meta: { sign: 1 }, color: accentHex },
-    { label: '+ 负电荷', action: 'electric-add', meta: { sign: -1 }, color: accentHex },
-    { label: '重置', action: 'electric-reset', meta: {}, color: accentHex },
-  ];
-
-  // Row B: 等势线 / 高斯面 / 试探电荷（3态切换：正电荷 / 负电荷 / 隐藏）
-  const probeQ0 = Number(probe.q0 ?? 1);
-  const probeQ0Num = Math.abs(probeQ0) < 1e-6 ? 0 : probeQ0;
-  const isProbeVisible = d.showProbe !== false;
-  let probeLabel = '';
-  if (!isProbeVisible) {
-    probeLabel = '试探电荷 (已隐藏)';
-  } else {
-    const probeQ0Sign = probeQ0Num > 0 ? '+' : '';
-    probeLabel = `试探电荷 q₀(${probeQ0Sign}${fmt(probeQ0Num, 1)}μC)`;
-  }
-  const toggleItems = [
-    { label: '等势线', action: 'electric-toggle', meta: { key: 'equipot' }, color: accentHex, active: Boolean(d.showEquipot) },
-    { label: '高斯面', action: 'electric-toggle', meta: { key: 'gauss' }, color: accentHex, active: Boolean(d.showGauss) },
-    { label: probeLabel, action: 'electric-probe-sign', meta: { mode: 'cycle', sign: isProbeVisible ? (probeQ0Num >= 0 ? -1 : 1) : 1 }, color: accentHex, active: isProbeVisible },
-  ];
-
-  // Row C & D: Charges list (up to 12)
-  const chipItems = charges.slice(0, maxChips).map((charge, i) => ({
-    label: `q_{${i + 1}}`,
-    action: 'electric-select',
-    meta: { id: charge.id, fontSize: Math.round(26 * scale) },
-    color: accentHex,
-    active: charge.id === d.selectedId,
-  }));
-
-  const itemsPerRow = 3;
-  const topBtnW = (innerW - (itemsPerRow - 1) * gap) / itemsPerRow;
-
-  // Box 1 Outer Container Height calculation
-  const matrixItemsPerRow = Math.max(4, Math.min(6, chipItems.length || 1));
-  const matrixRows = Math.ceil(chipItems.length / matrixItemsPerRow) || 1;
-  const itemH = Math.round(42 * scale);
-  const box1InnerPad = Math.round(10 * scale);
-  const box1Height = box1InnerPad * 2 + btnH * 2 + gap * 2 + matrixRows * (itemH + chipGap);
-
+  // —— 1. Top 3-column Summary Strip (keeps ε₀, Σq_i, Φ_E contract) ——
+  const statY = contentTop;
+  const statH = Math.round(62 * uiScale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = isDisplay ? 2.0 : 1.2;
-  roundRect(ctx, innerX, y, innerW, box1Height, 14);
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, statY, w, statH, 12);
   ctx.fill();
   ctx.stroke();
 
-  let innerY = y + box1InnerPad;
-
-  // Draw Row A (Actions)
-  actionItems.forEach((item, i) => {
-    drawHallButton(
-      ctx, hits,
-      innerX + box1InnerPad + i * (topBtnW + gap - (box1InnerPad * 2 / itemsPerRow)),
-      innerY,
-      topBtnW - box1InnerPad, btnH,
-      item.label, item.action, item.meta, item.color, false,
-    );
-  });
-  innerY += btnH + gap;
-
-  // Draw Row B (Toggles with merged Probe)
-  toggleItems.forEach((item, i) => {
-    drawHallButton(
-      ctx, hits,
-      innerX + box1InnerPad + i * (topBtnW + gap - (box1InnerPad * 2 / itemsPerRow)),
-      innerY,
-      topBtnW - box1InnerPad, btnH,
-      item.label, item.action, item.meta, item.color, !!item.active,
-    );
-  });
-  innerY += btnH + gap;
-
-  // Draw Charge Chips Matrix
-  const chipW = (innerW - box1InnerPad * 2 - (matrixItemsPerRow - 1) * chipGap) / matrixItemsPerRow;
-  chipItems.forEach((item, i) => {
-    const col = i % matrixItemsPerRow;
-    const row = Math.floor(i / matrixItemsPerRow);
-    drawHallButton(
-      ctx, hits,
-      innerX + box1InnerPad + col * (chipW + chipGap),
-      innerY + row * (itemH + chipGap),
-      chipW, itemH,
-      item.label, item.action, item.meta, item.color, !!item.active,
-    );
-  });
-
-  y += box1Height + gap;
-
-  // ── Row 3: Axis Locks Only (3 equal-width controls per draft) ──
-  const axisLock = d.axisLock || {};
-  const lockControls = [
-    { label: axisLock.x ? 'X · 锁' : '锁 X', action: 'electric-axis-lock', meta: { axis: 'x' }, color: accentHex, active: axisLock.x === true },
-    { label: axisLock.y ? 'Y · 锁' : '锁 Y', action: 'electric-axis-lock', meta: { axis: 'y' }, color: accentHex, active: axisLock.y === true },
-    { label: axisLock.z ? 'Z · 锁' : '锁 Z', action: 'electric-axis-lock', meta: { axis: 'z' }, color: accentHex, active: axisLock.z === true },
+  const headItems = [
+    '\\varepsilon_{0} = 8.85\\times 10^{-12} \\text{ F/m}',
+    `\\Sigma q_{i} = ${qEncVal >= 0 ? '+' : ''}${fmt(qEncVal, 1)} \\mu\\text{C}`,
+    formatFluxFormula(fluxVal),
   ];
-  const lockGap = Math.round(8 * scale);
-  const lockBtnW = (innerW - lockGap * (lockControls.length - 1)) / lockControls.length;
-  const lockH = Math.round(38 * scale);
-  lockControls.forEach((item, i) => {
-    drawHallButton(
-      ctx, hits,
-      innerX + i * (lockBtnW + lockGap),
-      y,
-      lockBtnW, lockH,
-      item.label,
-      item.action, item.meta,
-      item.color,
-      !!item.active,
-    );
+  const colW = w / headItems.length;
+  headItems.forEach((formula, i) => {
+    const colX = x + i * colW;
+    if (i > 0) {
+      ctx.strokeStyle = dividerStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(colX, statY + Math.round(12 * uiScale));
+      ctx.lineTo(colX, statY + statH - Math.round(12 * uiScale));
+      ctx.stroke();
+    }
+    drawMathFormula(ctx, formula, colX + colW / 2, statY + statH / 2, {
+      fontSize: Math.round(19 * uiScale),
+      color: P.title,
+      align: 'center',
+      textBaseline: 'middle',
+      fontWeight: 'bold',
+    });
   });
-  y += lockH + gap;
 
-  // ── Box 2: Source-charge editor panel (Bottom container) ──
-  const editorH = Math.max(Math.round(124 * scale), bottom - y - pad);
-  const leftX = innerX;
-  const colW = innerW;
+  // —— 2. Two-column Workspace ——
+  const bodyY = statY + statH + gap;
+  const bodyH = Math.max(260, contentTop + contentH - bodyY);
+  const leftW = Math.round((w - gap) * 0.52);
+  const rightX = x + leftW + gap;
+  const rightW = w - leftW - gap;
+  const btnGap = Math.round(8 * uiScale);
+  const subGap = Math.round(10 * uiScale);
+  const btnFontPx = Math.round(17 * uiScale);
 
-  function drawEditorPanel(x, w, title, subtitle) {
-    ctx.fillStyle = P.panel;
-    ctx.strokeStyle = P.panelStroke;
-    ctx.lineWidth = isDisplay ? 2.0 : 1.2;
-    roundRect(ctx, x, y, w, editorH, 14);
+  const probeQ0 = Number(probe.q0 ?? 1);
+  const probeQ0Num = Math.abs(probeQ0) < 1e-6 ? 0 : probeQ0;
+  const isProbeVisible = d.showProbe !== false;
+  const probeLabel = !isProbeVisible
+    ? '试探电荷 (已隐藏)'
+    : `试探电荷 q₀(${probeQ0Num > 0 ? '+' : ''}${fmt(probeQ0Num, 1)}μC)`;
+
+  // Left Upper Sub-card: Charge management, Toggles, Chip Grid & Axis Locks
+  const maxChips = 12;
+  const chipFontPx = Math.max(30, Math.round(30 * uiScale));
+  const chipItems = charges.slice(0, maxChips).map((charge, i) => ({
+    label: `q_{${i + 1}}`,
+    action: 'electric-select',
+    meta: { id: charge.id, fontSize: chipFontPx },
+    active: charge.id === d.selectedId,
+  }));
+  const matrixCols = Math.max(4, Math.min(6, chipItems.length || 1));
+  const matrixRows = Math.min(2, Math.ceil(chipItems.length / matrixCols) || 1);
+  const rowBtnH = Math.round(38 * uiScale);
+  const chipH = Math.max(46, Math.round(46 * uiScale));
+  const leftTopH = (
+    pad * 2
+    + Math.round(24 * uiScale)
+    + Math.round(6 * uiScale)
+    + rowBtnH * 3
+    + btnGap * 3
+    + matrixRows * chipH
+    + Math.max(0, matrixRows - 1) * Math.round(6 * uiScale)
+  );
+  const leftBotY = bodyY + leftTopH + subGap;
+  const leftBotH = Math.max(120, bodyY + bodyH - leftBotY);
+
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, bodyY, leftW, leftTopH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const lx = x + pad;
+  const lw = leftW - pad * 2;
+  let ly = bodyY + pad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('场源电荷与视图控制', lx, ly + Math.round(16 * uiScale));
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`当前场源: ${charges.length} 个`, lx + lw, ly + Math.round(16 * uiScale));
+  ctx.textAlign = 'left';
+  ly += Math.round(24 * uiScale) + Math.round(6 * uiScale);
+
+  const triW = (lw - btnGap * 2) / 3;
+  // Row A: +正电荷 / +负电荷 / 重置
+  drawHallButton(ctx, hits, lx, ly, triW, rowBtnH, '+ 正电荷', 'electric-add', { sign: 1 }, primaryBlue, false, { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + triW + btnGap, ly, triW, rowBtnH, '+ 负电荷', 'electric-add', { sign: -1 }, primaryBlue, false, { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + (triW + btnGap) * 2, ly, triW, rowBtnH, '重置实验', 'electric-reset', {}, primaryBlue, false, { fontPx: btnFontPx });
+  ly += rowBtnH + btnGap;
+
+  // Row B: 等势线 / 高斯面 / 试探电荷 cycle
+  drawHallButton(ctx, hits, lx, ly, triW, rowBtnH, '等势线', 'electric-toggle', { key: 'equipot' }, primaryBlue, Boolean(d.showEquipot), { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + triW + btnGap, ly, triW, rowBtnH, '高斯面', 'electric-toggle', { key: 'gauss' }, primaryBlue, Boolean(d.showGauss), { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + (triW + btnGap) * 2, ly, triW, rowBtnH, probeLabel, 'electric-probe-sign', { mode: 'cycle', sign: isProbeVisible ? (probeQ0Num >= 0 ? -1 : 1) : 1 }, primaryBlue, isProbeVisible, { fontPx: Math.round(14 * uiScale) });
+  ly += rowBtnH + btnGap;
+
+  // Row C: Charge Matrix
+  const chipGap = Math.round(6 * uiScale);
+  const chipW = (lw - chipGap * (matrixCols - 1)) / matrixCols;
+  chipItems.forEach((item, i) => {
+    const col = i % matrixCols;
+    const row = Math.floor(i / matrixCols);
+    if (row >= matrixRows) return;
+    drawHallButton(ctx, hits, lx + col * (chipW + chipGap), ly + row * (chipH + chipGap), chipW, chipH, item.label, item.action, item.meta, primaryBlue, item.active);
+  });
+  ly += matrixRows * chipH + Math.max(0, matrixRows - 1) * chipGap + btnGap;
+
+  // Row D: Axis Locks
+  const axisLock = d.axisLock || {};
+  drawHallButton(ctx, hits, lx, ly, triW, rowBtnH, axisLock.x ? 'X · 已锁' : '锁 X 轴', 'electric-axis-lock', { axis: 'x' }, primaryBlue, axisLock.x === true, { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + triW + btnGap, ly, triW, rowBtnH, axisLock.y ? 'Y · 已锁' : '锁 Y 轴', 'electric-axis-lock', { axis: 'y' }, primaryBlue, axisLock.y === true, { fontPx: btnFontPx });
+  drawHallButton(ctx, hits, lx + (triW + btnGap) * 2, ly, triW, rowBtnH, axisLock.z ? 'Z · 已锁' : '锁 Z 轴', 'electric-axis-lock', { axis: 'z' }, primaryBlue, axisLock.z === true, { fontPx: btnFontPx });
+
+  // Left Lower Sub-card: Gauss surface shape & radius (stitched desk controls)
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, leftBotY, leftW, leftBotH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const shapeNames = { sphere: '球形', cube: '正方体', cylinder: '圆柱体', irregular: '不规则' };
+  const currShape = d.gaussShape || 'sphere';
+  let gsy = leftBotY + pad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('高斯面设置 (Gauss)', lx, gsy + Math.round(15 * uiScale));
+  ctx.fillStyle = d.showGauss ? primaryBlue : P.muted;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(d.showGauss ? `形状: ${shapeNames[currShape] || '球形'}` : '当前未开启', lx + lw, gsy + Math.round(15 * uiScale));
+  ctx.textAlign = 'left';
+  gsy += Math.round(28 * uiScale);
+
+  const drawBoxSlider = (bx, bw, opts) => {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.26)' : 'rgba(56, 189, 248, 0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx, opts.y, bw, opts.h, 10);
     ctx.fill();
     ctx.stroke();
-    if (/[\\_^{}]|[A-Za-z]/.test(title)) {
-      drawMathFormula(ctx, title, x + pad, y + Math.round(14 * scale), { fontSize: Math.round(22 * scale), color: P.title, align: 'left', textBaseline: 'top', fontWeight: 'bold' });
-    } else {
-      ctx.fillStyle = P.title;
-      ctx.font = `bold ${Math.round(22 * scale)}px "Microsoft YaHei", sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(title, x + pad, y + Math.round(14 * scale));
+    drawParamSlider(ctx, hits, {
+      ...opts,
+      x: bx + Math.round(6 * uiScale),
+      w: bw - Math.round(12 * uiScale),
+      accentHex: primaryBlue,
+      largeType: true,
+      hideRange: true,
+    });
+  };
+
+  if (d.showGauss) {
+    const shapes = [
+      { key: 'sphere', label: '球形' },
+      { key: 'cube', label: '正方体' },
+      { key: 'cylinder', label: '圆柱体' },
+      { key: 'irregular', label: '不规则' },
+    ];
+    const quadW = (lw - btnGap * 3) / 4;
+    const sBtnH = Math.round(36 * uiScale);
+    shapes.forEach((sh, idx) => {
+      drawHallButton(ctx, hits, lx + idx * (quadW + btnGap), gsy, quadW, sBtnH, sh.label, 'electric-gauss-shape', { shape: sh.key }, primaryBlue, currShape === sh.key, {
+        fontPx: Math.round(16 * uiScale),
+      });
+    });
+    const slY = gsy + sBtnH + Math.round(8 * uiScale);
+    const slH = Math.min(Math.round(68 * uiScale), Math.max(Math.round(52 * uiScale), leftBotY + leftBotH - pad - slY));
+    drawBoxSlider(lx, lw, {
+      y: slY,
+      h: slH,
+      label: '高斯面缩放 R',
+      value: radius,
+      min: 1.2,
+      max: 4.2,
+      step: 0.05,
+      setAction: 'electric-set',
+      key: 'radius',
+      unit: 'm',
+      digits: 2,
+    });
+    const footY = slY + slH + Math.round(8 * uiScale);
+    const footH = leftBotY + leftBotH - pad - footY;
+    if (footH >= Math.round(28 * uiScale)) {
+      ctx.fillStyle = softFill;
+      ctx.strokeStyle = softStroke;
+      ctx.lineWidth = 1;
+      roundRect(ctx, lx, footY, lw, footH, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = deepBlue;
+      ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`高斯定理：Φ_E = Σq_i / ε_0 · 当前半径 R = ${fmt(radius, 2)} m`, lx + Math.round(10 * uiScale), footY + footH / 2);
+      ctx.textBaseline = 'alphabetic';
     }
-    if (subtitle) {
-      if (/[\\_^{}]|[A-Za-z]/.test(subtitle)) {
-        drawMathFormula(ctx, subtitle, x + pad, y + Math.round(48 * scale), { fontSize: Math.round(16 * scale), color: P.muted, align: 'left', textBaseline: 'top' });
-      } else {
-        ctx.fillStyle = P.muted;
-        ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(subtitle, x + pad, y + Math.round(48 * scale));
-      }
-    }
+  } else {
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(15 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText('开启高斯面可观测闭合曲面电通量 Φ_E 变化', lx, gsy + Math.round(22 * uiScale));
+    const openH = Math.round(42 * uiScale);
+    drawHallButton(ctx, hits, lx, leftBotY + leftBotH - pad - openH, lw, openH, '开启高斯面并选择几何形状', 'electric-toggle', { key: 'gauss' }, primaryBlue, false, {
+      fontPx: btnFontPx,
+    });
   }
+
+  // —— Right Upper Sub-card: Selected Source Charge q_i (with stitched |q_i| slider) ——
+  const rightTopH = Math.round(bodyH * 0.56);
+  const rightBotY = bodyY + rightTopH + subGap;
+  const rightBotH = Math.max(120, bodyY + bodyH - rightBotY);
+  const rx = rightX + pad;
+  const rw = rightW - pad * 2;
+
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, rightX, bodyY, rightW, rightTopH, 12);
+  ctx.fill();
+  ctx.stroke();
 
   if (selected) {
     const idx = charges.findIndex((c) => c.id === selected.id) + 1;
-    drawEditorPanel(
-      leftX, colW,
-      `场源电荷 q_{${idx}}`,
-      `q_{${idx}} = ${selected.q >= 0 ? '+' : ''}${fmt(selected.q, 1)}\\mu\\text{C} \\quad x = ${fmt(selected.x)}\\text{m} \\quad y = ${fmt(selected.y)}\\text{m} \\quad z = ${fmt(selected.z)}\\text{m}`,
-    );
-    const toolsY = y + Math.round(78 * scale);
-    const btnW = (colW - 2 * pad - 2 * gap) / 3;
-    const toolBtnH = Math.round(36 * scale);
-    drawHallButton(ctx, hits, leftX + pad, toolsY, btnW, toolBtnH, '正(+)', 'electric-sign', { sign: 1 }, accentHex, selected.q >= 0);
-    drawHallButton(ctx, hits, leftX + pad + btnW + gap, toolsY, btnW, toolBtnH, '负(−)', 'electric-sign', { sign: -1 }, accentHex, selected.q < 0);
-    drawHallButton(ctx, hits, leftX + pad + (btnW + gap) * 2, toolsY, btnW, toolBtnH, '删除选中', 'electric-delete', {}, accentHex);
-  } else {
-    drawEditorPanel(leftX, colW, '场源电荷 q', '点击上方列表或 3D 电荷以选中 · 试探电荷读数在球体上方');
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+    let ry = bodyY + pad;
+    drawMathFormula(ctx, `选中场源 q_{${idx}}`, rx, ry + Math.round(14 * uiScale), {
+      fontSize: Math.round(20 * uiScale),
+      color: P.title,
+      align: 'left',
+      textBaseline: 'middle',
+      fontWeight: 'bold',
+    });
+    const pillW = Math.round(92 * uiScale);
+    const pillH = Math.round(24 * uiScale);
+    ctx.fillStyle = softFill;
+    ctx.strokeStyle = softStroke;
+    ctx.lineWidth = 1;
+    roundRect(ctx, rx + rw - pillW, ry + Math.round(2 * uiScale), pillW, pillH, 7);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = deepBlue;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('未选中场源电荷（试探电荷信息见 3D 头顶标签）', leftX + colW / 2, y + editorH / 2 + Math.round(18 * scale));
+    ctx.fillText(selected.q >= 0 ? '正电荷 (+)' : '负电荷 (−)', rx + rw - pillW / 2, ry + Math.round(18 * uiScale));
+    ctx.textAlign = 'left';
+    ry += Math.round(32 * uiScale);
+
+    // 4-cell compact readout for q and (x, y, z)
+    const coordH = Math.round(48 * uiScale);
+    const cellW = (rw - btnGap * 3) / 4;
+    const cells = [
+      { k: `q_{${idx}}`, v: `${selected.q >= 0 ? '+' : ''}${fmt(selected.q, 1)} μC`, c: primaryBlue },
+      { k: 'x', v: `${fmt(selected.x, 2)} m`, c: P.text },
+      { k: 'y', v: `${fmt(selected.y, 2)} m`, c: P.text },
+      { k: 'z', v: `${fmt(selected.z, 2)} m`, c: P.text },
+    ];
+    cells.forEach((cell, i) => {
+      const cxCell = rx + i * (cellW + btnGap);
+      ctx.fillStyle = P.panelAlt;
+      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.24)' : 'rgba(56, 189, 248, 0.18)';
+      roundRect(ctx, cxCell, ry, cellW, coordH, 8);
+      ctx.fill();
+      ctx.stroke();
+      if (/[_{}]/.test(cell.k)) {
+        drawMathFormula(ctx, cell.k, cxCell + Math.round(8 * uiScale), ry + Math.round(13 * uiScale), {
+          fontSize: Math.round(13 * uiScale),
+          color: P.muted,
+          align: 'left',
+          textBaseline: 'middle',
+        });
+      } else {
+        ctx.fillStyle = P.muted;
+        ctx.font = `bold ${Math.round(12 * uiScale)}px "Microsoft YaHei", sans-serif`;
+        ctx.fillText(cell.k, cxCell + Math.round(8 * uiScale), ry + Math.round(17 * uiScale));
+      }
+      ctx.fillStyle = cell.c;
+      let cPx = Math.round(16 * uiScale);
+      ctx.font = `bold ${cPx}px "Microsoft YaHei", sans-serif`;
+      while (cPx > 11 && ctx.measureText(cell.v).width > cellW - Math.round(14 * uiScale)) {
+        cPx -= 1;
+        ctx.font = `bold ${cPx}px "Microsoft YaHei", sans-serif`;
+      }
+      ctx.fillText(cell.v, cxCell + Math.round(8 * uiScale), ry + coordH - Math.round(9 * uiScale));
+    });
+    ry += coordH + Math.round(8 * uiScale);
+
+    const toolBtnH = Math.round(38 * uiScale);
+    const availSlH = bodyY + rightTopH - pad - toolBtnH - Math.round(8 * uiScale) - ry;
+    const slH = Math.min(Math.round(70 * uiScale), Math.max(Math.round(52 * uiScale), availSlH));
+    ry += Math.max(0, Math.floor((availSlH - slH) * 0.45));
+    drawBoxSlider(rx, rw, {
+      y: ry,
+      h: slH,
+      label: `电荷量 |q_{${idx}}|`,
+      value: Math.abs(Number(selected.q || 1)),
+      min: 0.2,
+      max: 3.0,
+      step: 0.1,
+      setAction: 'electric-set',
+      key: 'q',
+      unit: 'μC',
+      digits: 1,
+    });
+
+    const toolY = bodyY + rightTopH - pad - toolBtnH;
+    const tBtnW = (rw - btnGap * 2) / 3;
+    drawHallButton(ctx, hits, rx, toolY, tBtnW, toolBtnH, '设为正(+)', 'electric-sign', { sign: 1 }, primaryBlue, selected.q >= 0, { fontPx: btnFontPx });
+    drawHallButton(ctx, hits, rx + tBtnW + btnGap, toolY, tBtnW, toolBtnH, '设为负(−)', 'electric-sign', { sign: -1 }, primaryBlue, selected.q < 0, { fontPx: btnFontPx });
+    drawHallButton(ctx, hits, rx + (tBtnW + btnGap) * 2, toolY, tBtnW, toolBtnH, '删除选中', 'electric-delete', {}, primaryBlue, false, { fontPx: btnFontPx });
+  } else {
+    ctx.fillStyle = P.title;
+    ctx.font = `bold ${Math.round(20 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText('场源电荷 q 编辑', rx, bodyY + pad + Math.round(18 * uiScale));
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(16 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('未选中场源电荷', rightX + rightW / 2, bodyY + rightTopH / 2 - Math.round(6 * uiScale));
+    ctx.font = `${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText('点击左侧 q_i 芯片或 3D 电荷球以调节电荷量与极性', rightX + rightW / 2, bodyY + rightTopH / 2 + Math.round(20 * uiScale));
+    ctx.textAlign = 'left';
   }
+
+  // —— Right Lower Sub-card: Probe Charge q_0 Control ——
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, rightX, rightBotY, rightW, rightBotH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  let pby = rightBotY + pad;
+  drawMathFormula(ctx, '试探电荷 q_{0} 控制', rx, pby + Math.round(14 * uiScale), {
+    fontSize: Math.round(18 * uiScale),
+    color: P.title,
+    align: 'left',
+    textBaseline: 'middle',
+    fontWeight: 'bold',
+  });
+  ctx.fillStyle = isProbeVisible ? primaryBlue : P.muted;
+  ctx.font = `bold ${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(
+    isProbeVisible ? `当前: ${probeQ0Num >= 0 ? '+' : ''}${fmt(probeQ0Num, 1)} μC` : '当前: 已隐藏',
+    rx + rw,
+    pby + Math.round(18 * uiScale),
+  );
+  ctx.textAlign = 'left';
+  pby += Math.round(30 * uiScale);
+
+  const pPosRowH = Math.round(30 * uiScale);
+  const pBtnH = Math.round(38 * uiScale);
+  const remAfterHead = rightBotY + rightBotH - pad - pBtnH - Math.round(8 * uiScale) - pby;
+  if (remAfterHead >= Math.round(92 * uiScale)) {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.22)' : 'rgba(56, 189, 248, 0.16)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, rx, pby, rw, pPosRowH, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`探头坐标: (${fmt(probe.x, 2)}, ${fmt(probe.y, 2)}, ${fmt(probe.z, 2)}) m`, rx + Math.round(10 * uiScale), pby + pPosRowH / 2);
+    ctx.textBaseline = 'alphabetic';
+    pby += pPosRowH + Math.round(8 * uiScale);
+  }
+  const pSlH = Math.min(Math.round(68 * uiScale), Math.max(Math.round(50 * uiScale), rightBotY + rightBotH - pad - pBtnH - Math.round(8 * uiScale) - pby));
+  drawBoxSlider(rx, rw, {
+    y: pby,
+    h: pSlH,
+    label: '试探电量 |q_0|',
+    value: Math.abs(probeQ0Num || 1),
+    min: 0.2,
+    max: 3.0,
+    step: 0.1,
+    setAction: 'electric-set',
+    key: 'q0',
+    target: 'probe',
+    unit: 'μC',
+    digits: 1,
+  });
+
+  drawHallButton(
+    ctx,
+    hits,
+    rx,
+    rightBotY + rightBotH - pad - pBtnH,
+    rw,
+    pBtnH,
+    isProbeVisible ? '切换状态: 正 / 负 / 隐藏' : '重新显示试探电荷 q₀',
+    'electric-probe-sign',
+    { mode: 'cycle', sign: isProbeVisible ? (probeQ0Num >= 0 ? -1 : 1) : 1 },
+    primaryBlue,
+    isProbeVisible,
+    { fontPx: btnFontPx },
+  );
 }
 
 /**
@@ -1488,344 +2215,407 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
  * (same lesson as geometric optics / hall carrier demo).
  */
 function drawHallExperiment(ctx, W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const { hits, innerX, innerW, contentTop, contentH, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
+  const isLight = _uiTheme === 'light';
   const isDisplay = cfg.surface === 'display';
-  const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
+  const scale = Math.max(0.70, Math.min(innerW / 1080, contentH / 640));
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
-  const isLight = _uiTheme === 'light';
   const identified = d.identified || {};
   const allIdentified = !!(identified.hall_helmholtz && identified.hall_solenoid && identified.hall_probe && identified.hall_console);
   const target = d.target || 'solenoid';
   const isHelmholtz = target === 'helmholtz';
   const stepIndex = Number(d.stepIndex || 0);
   const records = Array.isArray(d.records) ? d.records : [];
-  const gap = Math.round(10 * scale);
+
+  const primaryBlue = isLight ? '#0284c7' : '#38bdf8';
+  const deepBlue = isLight ? '#0369a1' : '#7dd3fc';
+  const doneTeal = isLight ? '#0d9488' : '#2dd4bf';
+  const softFill = isLight ? 'rgba(14, 165, 233, 0.10)' : 'rgba(56, 189, 248, 0.14)';
+  const softStroke = isLight ? 'rgba(2, 132, 199, 0.45)' : 'rgba(56, 189, 248, 0.42)';
+  const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+
+  const gap = Math.round(12 * scale);
   const pad = Math.round(14 * scale);
 
   const fillSoftText = (color, draw) => {
     ctx.save();
     ctx.fillStyle = color;
     if (isLight) {
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
-      ctx.shadowBlur = 4;
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.96)';
+      ctx.shadowBlur = 3;
     }
     draw();
     ctx.restore();
   };
 
-  // Step indicator (no experiment title)
-  const totalSteps = experiment.steps?.length || 6;
-  const stepText = `步骤 ${Math.min(stepIndex + 1, totalSteps)}/${totalSteps} · ${experiment.steps?.[stepIndex]?.text || '自由测量'}`;
-  ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.16)' : 'rgba(56, 189, 248, 0.14)';
-  ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.38)';
-  ctx.lineWidth = 1.2;
-  ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-  const badgeW = Math.min(innerW - Math.round(20 * scale), ctx.measureText(stepText).width + Math.round(40 * scale));
-  const badgeH = 0;
-  // roundRect(ctx, innerX, contentTop, badgeW, badgeH, badgeH / 2);
-  // ctx.fill();
-  // ctx.stroke();
-  fillSoftText(isLight ? '#0369a1' : '#7dd3fc', () => {
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-    // ctx.fillText(stepText, innerX + Math.round(16 * scale), contentTop + badgeH / 2);
-  });
-
   if (stepIndex === 0 && !allIdentified) {
-    // Identify step: list the four apparatus (name + status). Compact vertical layout (no bottom overflow).
-    const panelY = contentTop + Math.round(4 * scale);
-    const availH = contentH - Math.round(8 * scale);
-    
-    // Exactly four recognition targets (order 01→04).
     const items = [
-      { role: 'hall_helmholtz', n: '01', name: '亥姆霍兹线圈' },
-      { role: 'hall_solenoid', n: '02', name: '长螺线管' },
-      { role: 'hall_probe', n: '03', name: '霍尔探头与标尺' },
-      { role: 'hall_console', n: '04', name: 'HCC-2 测磁仪' },
+      { role: 'hall_helmholtz', n: '01', name: '亥姆霍兹线圈', tag: '对称磁场源', desc: '双同轴圆线圈结构，用于在轴线中心区域建立近似均匀的实验磁场。' },
+      { role: 'hall_solenoid', n: '02', name: '长螺线管', tag: '轴向磁场源', desc: '密绕通电长螺线管，用于测量内部及端口边缘轴线方向的磁场分布。' },
+      { role: 'hall_probe', n: '03', name: '霍尔探头与标尺', tag: '位置传感器', desc: '沿导轨刻度精确移动的高灵敏度霍尔探杆，实时感应垂直磁通分量。' },
+      { role: 'hall_console', n: '04', name: 'HCC-2 测磁仪', tag: '电源与读数', desc: '集成直流励磁电源 Im、霍尔恒流源 Is 与数字毫伏电压显示表。' },
     ];
-    const nextRole = items.find((item) => !identified[item.role])?.role || null;
-    const nextItem = items.find((item) => item.role === nextRole) || null;
-    const feedback = d.identifyFeedback || null;
+    const doneCount = items.filter((it) => identified[it.role]).length;
+    const nextItem = items.find((it) => !identified[it.role]) || null;
 
-    const headH = Math.round(36 * scale);
-    const cardGap = Math.round(10 * scale);
-    const cardTop = panelY + headH + Math.round(8 * scale);
-    const cardW = (innerW - pad * 2 - cardGap) / 2;
-    const cardH = Math.round(52 * scale);
-    
-    const gridH = cardH * 2 + cardGap;
-    const btnH = Math.round(38 * scale);
-    const btnY = cardTop + gridH + Math.round(10 * scale);
-    const calculatedPanelH = (btnY + btnH + Math.round(10 * scale)) - panelY;
-    const panelH = Math.min(availH, calculatedPanelH);
-
-    // Draw main panel background
-    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(10, 22, 44, 0.75)';
-    ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)';
-    ctx.lineWidth = 1.6;
+    const panelY = contentTop;
+    const panelH = Math.max(240, contentH);
+    ctx.fillStyle = P.panel;
+    ctx.strokeStyle = P.panelStroke;
+    ctx.lineWidth = isDisplay ? 1.6 : 1.2;
     roundRect(ctx, innerX, panelY, innerW, panelH, 14);
     ctx.fill();
     ctx.stroke();
 
-    // Panel Header Title
-    fillSoftText(isLight ? '#0284c7' : accentHex, () => {
-      ctx.font = `bold ${Math.round(22 * scale)}px "Microsoft YaHei", sans-serif`;
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'left';
-      ctx.fillText('实验器材识别', innerX + pad, panelY + Math.round(14 * scale));
-    });
+    const headH = Math.round(56 * scale);
+    ctx.fillStyle = P.title;
+    ctx.font = `bold ${Math.round(24 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText('实验器材识别', innerX + pad, panelY + Math.round(14 * scale));
+    ctx.fillStyle = P.muted;
+    ctx.font = `${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText('请在实验台依次点击瞄准下列仪器，或点击下方辅助确认完成校准', innerX + pad, panelY + Math.round(44 * scale));
 
-    // 2×2 Cards Grid
+    const progW = Math.round(132 * scale);
+    const progH = Math.round(30 * scale);
+    ctx.fillStyle = softFill;
+    ctx.strokeStyle = softStroke;
+    ctx.lineWidth = 1;
+    roundRect(ctx, innerX + innerW - pad - progW, panelY + Math.round(16 * scale), progW, progH, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = primaryBlue;
+    ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`进度: ${doneCount} / 4`, innerX + innerW - pad - progW / 2, panelY + Math.round(31 * scale));
+    ctx.textAlign = 'left';
+
+    const btnH = Math.round(50 * scale);
+    const btnY = panelY + panelH - pad - btnH;
+    const cardGap = Math.round(12 * scale);
+    const cardTop = panelY + headH + Math.round(20 * scale);
+    const gridH = Math.max(120, btnY - Math.round(14 * scale) - cardTop);
+    const cardW = (innerW - pad * 2 - cardGap) / 2;
+    const cardH = Math.max(Math.round(68 * scale), (gridH - cardGap) / 2);
+
     items.forEach((item, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
-      const x = innerX + pad + col * (cardW + cardGap);
-      const y = cardTop + row * (cardH + cardGap);
+      const cx = innerX + pad + col * (cardW + cardGap);
+      const cy = cardTop + row * (cardH + cardGap);
       const done = !!identified[item.role];
-      const current = !done && item.role === nextRole;
+      const current = !done && item.role === nextItem?.role;
 
       ctx.save();
-      if (current && !isLight) {
-        ctx.shadowColor = accentHex;
-        ctx.shadowBlur = 16;
-      }
       ctx.fillStyle = done
-        ? (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(34, 197, 94, 0.14)')
+        ? (isLight ? 'rgba(240, 253, 250, 0.92)' : 'rgba(13, 148, 136, 0.14)')
         : current
-          ? (isLight ? 'rgba(240, 249, 255, 0.98)' : 'rgba(56, 189, 248, 0.20)')
-          : (isLight ? 'rgba(255, 255, 255, 0.75)' : 'rgba(15, 30, 56, 0.45)');
+          ? softFill
+          : P.panelAlt;
       ctx.strokeStyle = done
-        ? (isLight ? '#16a34a' : '#4ade80')
+        ? doneTeal
         : current
-          ? (isLight ? '#0284c7' : accentHex)
-          : (isLight ? 'rgba(14, 165, 233, 0.35)' : 'rgba(148, 163, 184, 0.24)');
-      ctx.lineWidth = current ? 2.4 : 1.2;
-      roundRect(ctx, x, y, cardW, cardH, 12);
+          ? primaryBlue
+          : (isLight ? 'rgba(148, 163, 184, 0.34)' : 'rgba(56, 189, 248, 0.22)');
+      ctx.lineWidth = current ? 2.2 : 1.2;
+      roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
 
-      if (current) {
-        ctx.fillStyle = isLight ? '#0284c7' : accentHex;
-        roundRect(ctx, x + Math.round(14 * scale), y + 2, cardW - Math.round(28 * scale), 4, 2);
-        ctx.fill();
-      }
+      const statusTag = done ? '已识别' : current ? '当前目标' : '待识别';
+      const pillW = Math.round(78 * scale);
+      const pillH = Math.round(28 * scale);
+      const pillX = cx + cardW - pillW - Math.round(12 * scale);
+      const pillY = cy + Math.round(14 * scale);
 
-      ctx.save();
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      const cy = y + cardH / 2;
-
-      // Status Tag Pill layout calculations
-      const statusTag = done ? '已识别' : current ? '当前' : '待识别';
-      const pillW = Math.round(done ? 64 : 56) * scale;
-      const pillH = Math.round(26 * scale);
-      const pillX = x + cardW - pillW - Math.round(10 * scale);
-      const pillY = y + (cardH - pillH) / 2;
-
-      // Number tag [01] / ✓
       ctx.fillStyle = done
-        ? (isLight ? '#15803d' : '#4ade80')
+        ? (isLight ? 'rgba(13, 148, 136, 0.16)' : 'rgba(45, 212, 191, 0.20)')
         : current
-          ? (isLight ? '#0284c7' : accentHex)
-          : (isLight ? '#64748b' : '#94a3b8');
-      if (isLight) {
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
-        ctx.shadowBlur = 4;
-      }
-      const numPx = Math.max(14, Math.min(20, Math.round(cardH * 0.28)));
-      ctx.font = `bold ${numPx}px "Microsoft YaHei", sans-serif`;
-      const numLabel = done ? '✓' : `[${item.n}]`;
-      const numW = ctx.measureText(numLabel).width;
-      const numX = x + Math.round(12 * scale);
-      ctx.fillText(numLabel, numX, cy);
-
-      // Device Name text with dynamic width protection (prevents overlap with status pill)
-      const nameX = numX + numW + Math.round(8 * scale);
-      const maxNameW = pillX - nameX - Math.round(6 * scale);
-      ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
-      let namePx = Math.max(12, Math.min(18, Math.round(cardH * 0.28)));
-      ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
-      const actualNameW = ctx.measureText(item.name).width;
-      if (actualNameW > maxNameW && maxNameW > 10) {
-        namePx = Math.max(10, Math.floor(namePx * (maxNameW / actualNameW)));
-        ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
-      }
-      ctx.fillText(item.name, nameX, cy, Math.max(10, maxNameW));
-      ctx.restore();
-
-      // Right status pill badge
-      ctx.fillStyle = done
-        ? (isLight ? 'rgba(34,197,94,0.18)' : 'rgba(34,197,94,0.22)')
-        : current
-          ? (isLight ? 'rgba(14,165,233,0.22)' : 'rgba(56,189,248,0.28)')
-          : (isLight ? 'rgba(148,163,184,0.18)' : 'rgba(148,163,184,0.14)');
+          ? softFill
+          : (isLight ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.14)');
       roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
       ctx.fill();
-      ctx.fillStyle = done
-        ? (isLight ? '#15803d' : '#86efac')
-        : current
-          ? (isLight ? '#0369a1' : '#7dd3fc')
-          : (isLight ? '#64748b' : '#94a3b8');
-      ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+
+      ctx.fillStyle = done ? doneTeal : current ? primaryBlue : P.muted;
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(statusTag, pillX + pillW / 2, pillY + pillH / 2);
+      ctx.textAlign = 'left';
+
+      ctx.fillStyle = done ? doneTeal : current ? primaryBlue : P.muted;
+      ctx.font = `bold ${Math.round(20 * scale)}px "Microsoft YaHei", sans-serif`;
+      const numLabel = done ? '✓' : `[${item.n}]`;
+      ctx.fillText(numLabel, cx + Math.round(16 * scale), pillY + pillH / 2);
+      const numW = ctx.measureText(numLabel).width;
+
+      ctx.fillStyle = P.title;
+      let namePx = Math.round(20 * scale);
+      ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
+      const nameX = cx + Math.round(24 * scale) + numW;
+      const maxNameW = pillX - nameX - Math.round(8 * scale);
+      while (namePx > 13 && ctx.measureText(item.name).width > maxNameW) {
+        namePx -= 1;
+        ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
+      }
+      ctx.fillText(item.name, nameX, pillY + pillH / 2);
+
+      ctx.fillStyle = P.text;
+      ctx.font = `${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textBaseline = 'top';
+      const descLines = wrapText(ctx, item.desc, cardW - Math.round(32 * scale));
+      const descY = cy + Math.round(52 * scale);
+      descLines.slice(0, 2).forEach((ln, li) => {
+        ctx.fillText(ln, cx + Math.round(16 * scale), descY + li * Math.round(22 * scale));
+      });
+
+      const footTag = done ? '✓ 校准完成 · 可进入连线' : current ? `步骤提示 · 请瞄准「${item.name}」` : `组件类别 · ${item.tag}`;
+      const fBoxH = Math.round(28 * scale);
+      const fBoxY = cy + cardH - fBoxH - Math.round(12 * scale);
+      ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.72)' : 'rgba(15, 23, 42, 0.45)';
+      ctx.strokeStyle = done ? doneTeal : current ? softStroke : (isLight ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.16)');
+      ctx.lineWidth = 1;
+      roundRect(ctx, cx + Math.round(14 * scale), fBoxY, cardW - Math.round(28 * scale), fBoxH, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = done ? doneTeal : current ? primaryBlue : P.muted;
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(footTag, cx + Math.round(24 * scale), fBoxY + fBoxH / 2);
     });
 
     drawHallButton(
       ctx, hits,
-      innerX + innerW * 0.2,
-      btnY,
-      innerW * 0.6,
-      btnH,
+      innerX + innerW * 0.18, btnY,
+      innerW * 0.64, btnH,
       nextItem ? `确认瞄准：${nextItem.n} ${nextItem.name}` : '✓ 全部器材识别完成',
-      'hall-identify', {}, accentHex, true,
+      'hall-identify', {}, primaryBlue, true,
+      { fontPx: Math.round(19 * scale) },
     );
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
     return;
   }
 
-  // ── Measurement UI: bottom-up bands so footer never collides with panels ──
-  const contentBottom = contentTop + contentH;
-  const btnH = Math.round(36 * scale);
-  const btnBottomPad = Math.round(12 * scale);
-  const btnY = contentBottom - btnH - btnBottomPad;
-  const targetH = Math.round(34 * scale);
-  const targetY = contentTop + badgeH + (badgeH ? gap : 0);
-  const bodyY = targetY + targetH + gap;
-  const bodyH = Math.max(Math.round(160 * scale), btnY - gap - bodyY);
-  const colGap = Math.round(12 * scale);
-  const leftW = Math.round(innerW * 0.42);
+  // —— Measurement Mode ——
+  const rawIs = Number(d.Is || 0);
+  const isVal = rawIs > 0.05 ? rawIs / 1000 : rawIs;
+  const rawCoilPos = Number(d.rightCoilPos ?? 0.05);
+  const coilPosVal = Math.abs(rawCoilPos) > 0.5 ? rawCoilPos / 100 : rawCoilPos;
+  const rawLen = Number(d.solenoidLength || 0.30);
+  const lenVal = rawLen > 1.0 ? rawLen / 100 : rawLen;
+  const rawPos = Number(d.probePos ?? (isHelmholtz ? 0 : 16));
+  const posVal = isHelmholtz ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos;
+  const cleanPosVal = Math.abs(posVal) < 1e-6 ? 0 : posVal;
+  const posStr = isHelmholtz ? `${cleanPosVal.toFixed(3)} m` : `${cleanPosVal.toFixed(1)} cm`;
+  const rawVh = Number(d.vh || 0);
+  const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+  const vhMvStr = `${(vhV * 1000).toFixed(2)} mV`;
+  const liveB = (d.wiring && d.wiring.energized === false) ? 0 : hallTheoreticalB(d, cleanPosVal);
+  const liveBStr = `${liveB.toFixed(4)} T`;
+
+  // 1. Top Bar: Mode selector tabs (Left) + Live 3-metric strip (Right)
+  const topH = Math.round(62 * scale);
+  const leftW = Math.round(innerW * 0.45);
+  const colGap = gap;
   const rightX = innerX + leftW + colGap;
   const rightW = innerW - leftW - colGap;
 
-  // Target mode chips (Helmholtz vs Solenoid selector)
-  const targetW = (innerW - colGap) / 2;
-  drawHallButton(
-    ctx, hits,
-    innerX, targetY, targetW, targetH,
-    '亥姆霍兹线圈', 'hall-target', { target: 'helmholtz' }, accentHex, target === 'helmholtz',
-  );
-  drawHallButton(
-    ctx, hits,
-    innerX + targetW + colGap, targetY, targetW, targetH,
-    '长螺线管', 'hall-target', { target: 'solenoid' }, accentHex, target === 'solenoid',
-  );
+  const targetW = (leftW - Math.round(8 * scale)) / 2;
+  drawHallButton(ctx, hits, innerX, contentTop, targetW, topH, '亥姆霍兹线圈', 'hall-target', { target: 'helmholtz' }, primaryBlue, isHelmholtz, {
+    fontPx: Math.round(17 * scale),
+  });
+  drawHallButton(ctx, hits, innerX + targetW + Math.round(8 * scale), contentTop, targetW, topH, '长螺线管', 'hall-target', { target: 'solenoid' }, primaryBlue, !isHelmholtz, {
+    fontPx: Math.round(17 * scale),
+  });
 
-  // ── Left: live parameter readout card ──
-  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 12, 27, 0.72)';
-  ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.28)';
-  ctx.lineWidth = 1.4;
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, rightX, contentTop, rightW, topH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const tele = [
+    { k: isHelmholtz ? '探头位置 X' : '探杆刻度 X', v: posStr, c: P.text },
+    { k: '霍尔电压 U_H', v: vhMvStr, c: primaryBlue },
+    { k: '磁感应强度 B', v: liveBStr, c: primaryBlue },
+  ];
+  const teleColW = rightW / tele.length;
+  tele.forEach((t, i) => {
+    const tx = rightX + i * teleColW;
+    const tcx = tx + teleColW / 2;
+    if (i > 0) {
+      ctx.strokeStyle = dividerStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tx, contentTop + Math.round(10 * scale));
+      ctx.lineTo(tx, contentTop + topH - Math.round(10 * scale));
+      ctx.stroke();
+    }
+    drawMathFormula(ctx, t.k, tcx, contentTop + Math.round(9 * scale), {
+      fontSize: Math.round(13 * scale),
+      color: P.muted,
+      align: 'center',
+      textBaseline: 'top',
+    });
+    ctx.fillStyle = t.c;
+    let vPx = Math.round(20 * scale);
+    ctx.font = `bold ${vPx}px "Microsoft YaHei", sans-serif`;
+    while (vPx > 12 && ctx.measureText(t.v).width > teleColW - Math.round(12 * scale)) {
+      vPx -= 1;
+      ctx.font = `bold ${vPx}px "Microsoft YaHei", sans-serif`;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(t.v, tcx, contentTop + Math.round(31 * scale));
+  });
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  // 2. Main Body + Bottom Action Bar geometry
+  const contentBottom = contentTop + contentH;
+  const footBtnH = Math.round(42 * scale);
+  const btnY = contentBottom - footBtnH;
+  const bodyY = contentTop + topH + gap;
+  const bodyH = Math.max(Math.round(180 * scale), btnY - gap - bodyY);
+
+  // —— Left Panel: Stitched Sliders + Setup Constant Pill + Record CTA ——
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
   roundRect(ctx, innerX, bodyY, leftW, bodyH, 12);
   ctx.fill();
   ctx.stroke();
 
-  const leftHeadH = Math.round(38 * scale);
-  const leftFootH = 0;
-  const paramAreaTop = bodyY + leftHeadH;
-  const paramAreaH = Math.max(0, bodyH - leftHeadH);
+  const lx = innerX + pad;
+  const lw = leftW - pad * 2;
+  let ly = bodyY + Math.round(12 * scale);
 
-  fillSoftText(isLight ? '#0284c7' : accentHex, () => {
-    ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('实验参数', innerX + pad, bodyY + leftHeadH / 2);
-  });
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('实验参数与采样控制', lx, ly + Math.round(14 * scale));
+  ctx.fillStyle = deepBlue;
+  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(`K = ${Number(d.hallK || HALL_K)} V/(A·T)`, lx + lw, ly + Math.round(14 * scale));
+  ctx.textAlign = 'left';
+  ly += Math.round(28 * scale);
 
-  const rawIs = Number(d.Is || 0);
-  const isVal = rawIs > 0.05 ? rawIs / 1000 : rawIs;
-  const rawCoilPos = Number(d.rightCoilPos || 0);
-  const coilPosVal = Math.abs(rawCoilPos) > 0.5 ? rawCoilPos / 100 : rawCoilPos;
-  const rawLen = Number(d.solenoidLength || 0.30);
-  const lenVal = rawLen > 1.0 ? rawLen / 100 : rawLen;
+  const recBtnH = Math.round(44 * scale);
+  const infoH = Math.round(28 * scale);
+  const slGap = Math.round(7 * scale);
+  const slAvail = bodyY + bodyH - Math.round(12 * scale) - recBtnH - Math.round(8 * scale) - infoH - Math.round(8 * scale) - ly - slGap * 3;
+  const slH = Math.min(Math.round(68 * scale), Math.max(Math.round(48 * scale), Math.floor(slAvail / 4)));
 
-  const params = [
-    { key: 'Im', label: '励磁电流 Im', value: Number(d.Im || 0), unit: 'A', digits: 2 },
-    { key: 'Is', label: '霍尔电流 Is', value: isVal, unit: 'A', digits: 3 },
-    { key: 'hallK', label: '灵敏度 K', value: Number(d.hallK || HALL_K), unit: 'V/(A·T)', digits: 0 },
-    ...(target === 'helmholtz'
+  const drawBoxSlider = (opts) => {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.26)' : 'rgba(56, 189, 248, 0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, lx, opts.y, lw, opts.h, 10);
+    ctx.fill();
+    ctx.stroke();
+    drawParamSlider(ctx, hits, {
+      ...opts,
+      x: lx + Math.round(6 * scale),
+      w: lw - Math.round(12 * scale),
+      accentHex: primaryBlue,
+      largeType: true,
+      hideRange: true,
+    });
+  };
+
+  const sliderSpecs = [
+    { label: '励磁电流 Im', key: 'Im', value: Number(d.Im || 0), min: 0, max: 1, step: 0.01, unit: 'A', digits: 2 },
+    { label: '霍尔电流 Is', key: 'Is', value: isVal, min: 0, max: 0.010, step: 0.0005, unit: 'A', digits: 3 },
+    ...(isHelmholtz
       ? [
-          { key: 'leftCoilPos', label: '左线圈位置', value: 0, unit: 'm', digits: 3 },
-          { key: 'rightCoilPos', label: '右线圈位置', value: coilPosVal, unit: 'm', digits: 3 },
+          { label: '探头 X', key: 'probePos', value: cleanPosVal, min: -0.25, max: 0.25, step: 0.01, unit: 'm', digits: 3 },
+          { label: '右线圈位置', key: 'rightCoilPos', value: coilPosVal, min: 0.02, max: 0.155, step: 0.01, unit: 'm', digits: 3 },
         ]
       : [
-          { key: 'solenoidLength', label: '螺线管长度 L', value: lenVal, unit: 'm', digits: 2 },
-          { key: 'turns', label: '螺线管匝数 N', value: Number(d.turns || 2340), unit: '匝', digits: 0 },
-          { key: 'turnsDensity', label: '匝数密度 n', value: Math.round(Number(d.turns || 2340) / (lenVal || 0.3)), unit: '匝/米', digits: 0 },
+          { label: '探杆刻度 X', key: 'probePos', value: cleanPosVal, min: 1, max: 31, step: 0.5, unit: 'cm', digits: 1 },
+          { label: '螺线管匝数 N', key: 'turns', value: Number(d.turns || 2340), min: 10, max: 5000, step: 10, unit: '匝', digits: 0 },
         ]),
   ];
 
-  // Divide paramAreaH strictly by params.length to guarantee no footer collisions
-  const paramRowH = paramAreaH / Math.max(1, params.length);
-  const labelPx = Math.max(12, Math.min(15, Math.round(paramRowH * 0.38)));
-  const valuePx = Math.max(13, Math.min(17, Math.round(paramRowH * 0.44)));
-
-  params.forEach((p, i) => {
-    const y = paramAreaTop + i * paramRowH;
-    const cy = y + paramRowH / 2;
-
-    if (i % 2 === 1) {
-      ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.05)' : 'rgba(56, 189, 248, 0.04)';
-      roundRect(ctx, innerX + Math.round(6 * scale), y + 2, leftW - Math.round(12 * scale), Math.max(0, paramRowH - 4), 6);
-      ctx.fill();
-    } else if (i > 0) {
-      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.12)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(innerX + pad, y);
-      ctx.lineTo(innerX + leftW - pad, y);
-      ctx.stroke();
-    }
-
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${labelPx}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText(p.label, innerX + pad, cy);
-
-    const valText = `${Number(p.value).toFixed(p.digits)}${p.unit ? ` ${p.unit}` : ''}`;
-    const maxValW = leftW - pad * 2 - ctx.measureText(p.label).width - Math.round(6 * scale);
-    ctx.fillStyle = isLight ? '#0369a1' : '#7dd3fc';
-    let fSize = valuePx;
-    ctx.font = `bold ${fSize}px "Microsoft YaHei", sans-serif`;
-    while (ctx.measureText(valText).width > maxValW && fSize > 10) {
-      fSize -= 1;
-      ctx.font = `bold ${fSize}px "Microsoft YaHei", sans-serif`;
-    }
-    ctx.textAlign = 'right';
-    ctx.fillText(valText, innerX + leftW - pad, cy);
+  sliderSpecs.forEach((sp, i) => {
+    drawBoxSlider({
+      y: ly + i * (slH + slGap),
+      h: slH,
+      label: sp.label,
+      value: sp.value,
+      min: sp.min,
+      max: sp.max,
+      step: sp.step,
+      setAction: 'hall-set',
+      key: sp.key,
+      unit: sp.unit,
+      digits: sp.digits,
+    });
   });
 
-  // ── Right: VH readout strip + data table / curve ──
-  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(2, 12, 27, 0.72)';
-  ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)';
-  ctx.lineWidth = 1.4;
+  const infoY = bodyY + bodyH - Math.round(12 * scale) - recBtnH - Math.round(8 * scale) - infoH;
+  ctx.fillStyle = softFill;
+  ctx.strokeStyle = softStroke;
+  ctx.lineWidth = 1;
+  roundRect(ctx, lx, infoY, lw, infoH, 7);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = deepBlue;
+  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textBaseline = 'middle';
+  const infoStr = isHelmholtz
+    ? `左线圈位置: 0.000 m · 线圈模式: ${(d.wiring?.coilMode || d.coilMode || 'both') === 'fixed' ? '单左(B₁)' : (d.wiring?.coilMode || d.coilMode || 'both') === 'moving' ? '单右(B₂)' : '双线圈(B总)'}`
+    : `螺线管长度 L = ${lenVal.toFixed(2)} m · 匝数密度 n = ${Math.round(Number(d.turns || 2340) / (lenVal || 0.3))} 匝/m`;
+  ctx.fillText(infoStr, lx + Math.round(10 * scale), infoY + infoH / 2);
+  ctx.textBaseline = 'alphabetic';
+
+  drawHallButton(
+    ctx, hits,
+    lx, bodyY + bodyH - Math.round(12 * scale) - recBtnH,
+    lw, recBtnH,
+    '记录当前读数',
+    'hall-record',
+    {},
+    primaryBlue,
+    true,
+    { fontPx: Math.round(18 * scale) },
+  );
+
+  // —— Right Panel: Data Table or B–X Curve ——
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
   roundRect(ctx, rightX, bodyY, rightW, bodyH, 12);
   ctx.fill();
   ctx.stroke();
 
-  const rightHeadH = Math.round(38 * scale);
-  const rightFootH = Math.round(10 * scale);
-  const titleText = d.showCurve ? 'B–X 磁场分布' : '实验数据记录';
-
-  fillSoftText(isLight ? '#0284c7' : accentHex, () => {
-    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  const rightHeadH = Math.round(42 * scale);
+  const titleText = d.showCurve ? 'B–X 磁场分布曲线' : `实验数据记录 (共 ${records.length} 组)`;
+  fillSoftText(primaryBlue, () => {
+    ctx.font = `bold ${Math.round(17 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(titleText, rightX + pad, bodyY + rightHeadH / 2);
   });
 
-
   const chartX = rightX + pad;
   const chartY = bodyY + rightHeadH;
   const chartW = rightW - pad * 2;
-  const chartH = Math.max(Math.round(96 * scale), bodyH - rightHeadH - rightFootH);
-      ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.85)' : 'rgba(15, 23, 42, 0.78)';
-      roundRect(ctx, chartX, chartY, chartW, chartH, 8);
-      ctx.fill();
+  const chartH = Math.max(Math.round(110 * scale), bodyH - rightHeadH - Math.round(12 * scale));
+  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(15, 23, 42, 0.78)';
+  ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.25)' : 'rgba(56, 189, 248, 0.16)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, chartX, chartY, chartW, chartH, 9);
+  ctx.fill();
+  ctx.stroke();
 
   if (d.showCurve) {
     const same = (a, b, eps = 1e-6) => {
@@ -1842,21 +2632,25 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     const xMax = isHelmholtz ? 0.15 : 31;
 
     const measured = shown.map((r) => {
-      const rawPos = Number(r.pos || 0);
+      const rawP = Number(r.pos || 0);
       return {
-        x: isHelmholtz ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos) : rawPos,
+        x: isHelmholtz ? (Math.abs(rawP) > 0.5 ? rawP / 100 : rawP) : rawP,
         b: hallRecordedB(r),
         coilMode: r.coilMode || 'both',
       };
     });
 
     const curvesToDraw = [];
+    const fixedColor = isLight ? '#1d4ed8' : '#93c5fd';
+    const movingColor = isLight ? '#0d9488' : '#5eead4';
+    const bothColor = primaryBlue;
+
     if (isHelmholtz) {
       if (measured.some((p) => p.coilMode === 'fixed')) {
         curvesToDraw.push({
           key: 'fixed',
           label: 'B₁',
-          color: isLight ? '#d97706' : '#fbbf24',
+          color: fixedColor,
           data: Array.from({ length: 161 }, (_, i) => {
             const x = xMin + ((xMax - xMin) * i) / 160;
             return { x, b: hallTheoreticalB({ ...d, coilMode: 'fixed' }, x) };
@@ -1867,7 +2661,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         curvesToDraw.push({
           key: 'moving',
           label: 'B₂',
-          color: isLight ? '#059669' : '#34d399',
+          color: movingColor,
           data: Array.from({ length: 161 }, (_, i) => {
             const x = xMin + ((xMax - xMin) * i) / 160;
             return { x, b: hallTheoreticalB({ ...d, coilMode: 'moving' }, x) };
@@ -1878,7 +2672,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         curvesToDraw.push({
           key: 'both',
           label: 'B总',
-          color: isLight ? '#0284c7' : '#38bdf8',
+          color: bothColor,
           data: Array.from({ length: 161 }, (_, i) => {
             const x = xMin + ((xMax - xMin) * i) / 160;
             return { x, b: hallTheoreticalB({ ...d, coilMode: 'both' }, x) };
@@ -1889,7 +2683,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       curvesToDraw.push({
         key: 'solenoid',
         label: '拟合曲线',
-        color: isLight ? '#0284c7' : '#38bdf8',
+        color: bothColor,
         data: Array.from({ length: 161 }, (_, i) => {
           const x = xMin + ((xMax - xMin) * i) / 160;
           return { x, b: hallTheoreticalB(d, x) };
@@ -1915,50 +2709,49 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       yMax = rawMax + yPad;
     }
 
-    const plotL = chartX + Math.round(44 * scale);
-    const plotR = chartX + chartW - Math.round(10 * scale);
-    const plotT = chartY + Math.round(24 * scale);
-    const plotB = chartY + chartH - Math.round(24 * scale);
-    const px = (x) => plotL + ((x - xMin) / (xMax - xMin)) * (plotR - plotL);
-    const py = (b) => plotB - ((b - yMin) / Math.max(1e-9, yMax - yMin)) * (plotB - plotT);
+    const plotL = chartX + Math.round(58 * scale);
+    const plotR = chartX + chartW - Math.round(14 * scale);
+    const plotT = chartY + Math.round(28 * scale);
+    const plotB = chartY + chartH - Math.round(32 * scale);
+    const px = (xv) => plotL + ((xv - xMin) / (xMax - xMin)) * (plotR - plotL);
+    const py = (bv) => plotB - ((bv - yMin) / Math.max(1e-9, yMax - yMin)) * (plotB - plotT);
 
     ctx.lineWidth = 1;
-    ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
     for (let i = 0; i <= 6; i++) {
       const t = i / 6;
       const gx = plotL + (plotR - plotL) * t;
-      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.14)';
+      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.16)';
       ctx.beginPath(); ctx.moveTo(gx, plotT); ctx.lineTo(gx, plotB); ctx.stroke();
-      fillSoftText(isLight ? '#0f172a' : 'rgba(203, 213, 225, 0.78)', () => {
-        ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
+      fillSoftText(P.muted, () => {
+        ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText((xMin + (xMax - xMin) * t).toFixed(isHelmholtz ? 2 : 1), gx, plotB + Math.round(3 * scale));
+        ctx.fillText((xMin + (xMax - xMin) * t).toFixed(isHelmholtz ? 2 : 1), gx, plotB + Math.round(4 * scale));
       });
     }
     for (let j = 0; j <= 4; j++) {
       const t = j / 4;
       const gy = plotB - (plotB - plotT) * t;
-      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.14)';
+      ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.16)';
       ctx.beginPath(); ctx.moveTo(plotL, gy); ctx.lineTo(plotR, gy); ctx.stroke();
-      fillSoftText(isLight ? '#0f172a' : 'rgba(203, 213, 225, 0.78)', () => {
-        ctx.font = `${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
+      fillSoftText(P.muted, () => {
+        ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.fillText((yMin + (yMax - yMin) * t).toFixed(4), plotL - Math.round(4 * scale), gy);
+        ctx.fillText((yMin + (yMax - yMin) * t).toFixed(4), plotL - Math.round(5 * scale), gy);
       });
     }
-    ctx.strokeStyle = isLight ? '#64748b' : 'rgba(226, 232, 240, 0.45)';
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = isLight ? '#64748b' : 'rgba(226, 232, 240, 0.5)';
+    ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.moveTo(plotL, plotT); ctx.lineTo(plotL, plotB); ctx.lineTo(plotR, plotB); ctx.stroke();
 
-    fillSoftText(isLight ? '#0f172a' : '#cbd5e1', () => {
-      ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    fillSoftText(P.text, () => {
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText('B / T', chartX + Math.round(4 * scale), chartY + Math.round(4 * scale));
+      ctx.fillText('B / T', chartX + Math.round(6 * scale), chartY + Math.round(6 * scale));
       ctx.textAlign = 'right';
-      ctx.fillText(isHelmholtz ? 'X / m' : 'X / cm', plotR, plotB + Math.round(14 * scale));
+      ctx.fillText(isHelmholtz ? 'X / m' : 'X / cm', plotR, plotB + Math.round(16 * scale));
     });
 
     if (d.showFit) {
@@ -1970,19 +2763,11 @@ function drawHallExperiment(ctx, W, _H, cfg) {
           if (p.x < xMin || p.x > xMax) return;
           const cx = px(p.x);
           const cy = py(p.b);
-          if (first) {
-            ctx.moveTo(cx, cy);
-            first = false;
-          } else {
-            ctx.lineTo(cx, cy);
-          }
+          if (first) { ctx.moveTo(cx, cy); first = false; }
+          else ctx.lineTo(cx, cy);
         });
         ctx.strokeStyle = c.color;
-        ctx.lineWidth = Math.max(1.8, Math.round(2.2 * scale));
-        if (!isLight) {
-          ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
-          ctx.shadowBlur = 4;
-        }
+        ctx.lineWidth = Math.max(2, Math.round(2.5 * scale));
         ctx.stroke();
         ctx.restore();
       });
@@ -1992,25 +2777,23 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       if (p.x < xMin || p.x > xMax) return;
       const cx = px(p.x);
       const cy = py(p.b);
-      const isFixed = p.coilMode === 'fixed';
-      const isMoving = p.coilMode === 'moving';
-      const pointColor = isHelmholtz ? (isFixed ? '#d97706' : isMoving ? '#059669' : '#0284c7') : (isLight ? '#0284c7' : '#38bdf8');
-      const arm = Math.max(2.8, Math.round(3.6 * scale));
+      const pointColor = isHelmholtz
+        ? (p.coilMode === 'fixed' ? fixedColor : p.coilMode === 'moving' ? movingColor : bothColor)
+        : bothColor;
+      const arm = Math.max(3.2, Math.round(4.2 * scale));
       ctx.save();
       ctx.strokeStyle = pointColor;
-      ctx.lineWidth = Math.max(1, 1.2 * scale);
+      ctx.lineWidth = Math.max(1.4, 1.6 * scale);
       ctx.lineCap = 'butt';
       ctx.beginPath();
-      ctx.moveTo(cx - arm, cy);
-      ctx.lineTo(cx + arm, cy);
-      ctx.moveTo(cx, cy - arm);
-      ctx.lineTo(cx, cy + arm);
+      ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
+      ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
       ctx.stroke();
       ctx.restore();
     });
 
-    fillSoftText(isLight ? '#475569' : '#94a3b8', () => {
-      ctx.font = `bold ${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
+    fillSoftText(P.muted, () => {
+      ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       let curX = plotR;
@@ -2019,29 +2802,28 @@ function drawHallExperiment(ctx, W, _H, cfg) {
           const item = curvesToDraw[idx];
           const text = `— ${item.label}`;
           ctx.fillStyle = item.color;
-          ctx.fillText(text, curX, chartY + Math.round(4 * scale));
-          curX -= ctx.measureText(text).width + Math.round(8 * scale);
+          ctx.fillText(text, curX, chartY + Math.round(13 * scale));
+          curX -= ctx.measureText(text).width + Math.round(10 * scale);
         }
       } else {
         const fitLabel = (d.showFit && curvesToDraw.length > 0) ? '— 拟合曲线   ' : '';
-        ctx.fillStyle = isLight ? '#0284c7' : '#38bdf8';
-        ctx.fillText(`${fitLabel}+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(4 * scale));
+        ctx.fillStyle = primaryBlue;
+        ctx.fillText(`${fitLabel}+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(13 * scale));
       }
     });
   } else {
-    // Non-overlapping, compact column headers with clear gaps
     const cols = [
-      { label: '#', x: 0.04, align: 'left' },
+      { label: '#', x: 0.05, align: 'left' },
       { label: isHelmholtz ? 'X (m)' : 'X (cm)', x: 0.35, align: 'right' },
       { label: 'VH (mV)', x: 0.68, align: 'right' },
       { label: 'B (T)', x: 0.96, align: 'right' },
     ];
-    const headRowH = Math.round(24 * scale);
-    ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.14)' : 'rgba(56, 189, 248, 0.16)';
-    roundRect(ctx, chartX, chartY, chartW, headRowH, 4);
+    const headRowH = Math.round(30 * scale);
+    ctx.fillStyle = softFill;
+    roundRect(ctx, chartX, chartY, chartW, headRowH, 6);
     ctx.fill();
-    fillSoftText(isLight ? '#0284c7' : '#7dd3fc', () => {
-      ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    fillSoftText(deepBlue, () => {
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textBaseline = 'middle';
       cols.forEach((col) => {
         ctx.textAlign = col.align || 'left';
@@ -2049,7 +2831,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       });
     });
 
-    const dataRowH = Math.max(Math.round(22 * scale), Math.round(24 * scale));
+    const dataRowH = Math.round(28 * scale);
     const maxRows = Math.max(1, Math.floor((chartH - headRowH - Math.round(4 * scale)) / dataRowH));
     const maxStart = Math.max(0, records.length - maxRows);
     let start = maxStart;
@@ -2081,20 +2863,20 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         ctx.fillRect(chartX, y, chartW, dataRowH);
       }
       fillSoftText(isLight ? '#0f172a' : '#dbeafe', () => {
-        ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+        ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
         ctx.textBaseline = 'middle';
-        const rawPos = Number(r.pos || 0);
-        const posVal = isHelmholtz
-          ? (Math.abs(rawPos) > 0.5 ? rawPos / 100 : rawPos)
-          : (Math.abs(rawPos) <= 0.5 ? rawPos * 100 : rawPos);
-        const cleanPos = Math.abs(posVal) < 1e-6 ? 0 : posVal;
-        const posXStr = cleanPos.toFixed(isHelmholtz ? 3 : 1);
-        const rawVh = Number(r.vh || 0);
-        const vhV = Math.abs(rawVh) > 0.05 ? rawVh / 1000 : rawVh;
+        const rPos = Number(r.pos || 0);
+        const rPosVal = isHelmholtz
+          ? (Math.abs(rPos) > 0.5 ? rPos / 100 : rPos)
+          : (Math.abs(rPos) <= 0.5 ? rPos * 100 : rPos);
+        const cleanRPos = Math.abs(rPosVal) < 1e-6 ? 0 : rPosVal;
+        const posXStr = cleanRPos.toFixed(isHelmholtz ? 3 : 1);
+        const rVh = Number(r.vh || 0);
+        const rVhV = Math.abs(rVh) > 0.05 ? rVh / 1000 : rVh;
         const values = [
           String(start + i + 1),
           posXStr,
-          (vhV * 1000).toFixed(2),
+          (rVhV * 1000).toFixed(2),
           hallRecordedB(r).toFixed(4),
         ];
         cols.forEach((col, ci) => {
@@ -2105,16 +2887,15 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     });
 
     if (!records.length) {
-      ctx.fillStyle = isLight ? '#475569' : 'rgba(148, 163, 184, 0.75)';
-      ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.fillStyle = P.muted;
+      ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const emptyStr = wrapText(ctx, '在桌面控制面板点击「记录当前读数」', chartW - Math.round(16 * scale))[0] || '在控制面板点击「记录读数」';
-      ctx.fillText(emptyStr, chartX + chartW / 2, chartY + headRowH + (chartH - headRowH) / 2);
+      ctx.fillText('点击左侧「记录当前读数」采集实验数据', chartX + chartW / 2, chartY + headRowH + (chartH - headRowH) / 2);
     }
 
     if (records.length > maxRows) {
-      const trackW = Math.round(5 * scale);
+      const trackW = Math.round(6 * scale);
       const trackX = chartX + chartW - trackW - Math.round(4 * scale);
       const trackY = chartY + headRowH + Math.round(2 * scale);
       const trackH = chartH - headRowH - Math.round(6 * scale);
@@ -2124,31 +2905,30 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
       const thumbH = Math.max(Math.round(24 * scale), trackH * (maxRows / records.length));
       const thumbY = trackY + (start / Math.max(1, maxStart)) * (trackH - thumbH);
-      ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.65)' : 'rgba(56, 189, 248, 0.75)';
+      ctx.fillStyle = primaryBlue;
       roundRect(ctx, trackX, thumbY, trackW, thumbH, Math.round(3 * scale));
       ctx.fill();
     }
   }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 
-  // Action bar buttons with pure text labels
+  // 3. Bottom Action Bar (4 buttons preserved)
   const btnGap = Math.round(10 * scale);
   const isFitting = d.showCurve && !!d.showFit;
   const labels = [
     { label: d.showCurve ? '返回记录' : '生成曲线', action: 'hall-chart' },
-    {
-      label: isFitting ? '隐藏拟合' : '拟合曲线',
-      action: 'hall-fit',
-      active: isFitting,
-    },
+    { label: isFitting ? '隐藏拟合' : '拟合曲线', action: 'hall-fit', active: isFitting },
     { label: '导出数据', action: 'hall-export' },
-    { label: '清空', action: 'hall-clear' },
+    { label: '清空数据', action: 'hall-clear' },
   ];
   const bw = (innerW - btnGap * (labels.length - 1)) / labels.length;
   labels.forEach((b, i) => {
     drawHallButton(
       ctx, hits,
-      innerX + i * (bw + btnGap), btnY, bw, btnH,
-      b.label, b.action, {}, accentHex, !!b.active,
+      innerX + i * (bw + btnGap), btnY, bw, footBtnH,
+      b.label, b.action, {}, primaryBlue, !!b.active,
+      { fontPx: Math.round(17 * scale) },
     );
   });
 }
@@ -2163,163 +2943,297 @@ function drawHallExperiment(ctx, W, _H, cfg) {
  * Avoids the old dual-panel layout that let status text collide with hints.
  */
 function drawHallDemoExperiment(ctx, _W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, hud, accentHex } = cfg;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const { hits, innerX, innerW, contentTop, contentH, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
+  const isLight = _uiTheme === 'light';
   const isDisplay = cfg.surface === 'display';
-  const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
+  const uiScale = Math.max(0.66, Math.min(innerW / 1080, contentH / 640));
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
-  const gap = Math.round(10 * scale);
+
+  const primaryBlue = isLight ? '#0284c7' : '#38bdf8';
+  const deepBlue = isLight ? '#0369a1' : '#7dd3fc';
+  const softFill = isLight ? 'rgba(14, 165, 233, 0.10)' : 'rgba(56, 189, 248, 0.14)';
+  const softStroke = isLight ? 'rgba(2, 132, 199, 0.45)' : 'rgba(56, 189, 248, 0.42)';
+  const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+
   const x = innerX;
   const w = innerW;
-  const pink = _uiTheme === 'light' ? '#be185d' : '#f9a8d4';
+  const gap = Math.round(10 * uiScale);
+  const pad = Math.round(12 * uiScale);
+
+  const valI = Number(d.I ?? 1.0);
+  const valB = Number(d.B ?? 1.0);
+  const nVal = Math.max(0.01, Number(d.n ?? 1.0));
+  const dVal = Math.max(0.01, Number(d.d ?? 0.5));
   const vh = Number(d.vh || 0);
   const isNType = d.nType !== false;
-
-  const nVal = Math.max(0.01, Number(d.n || 1));
-  const dVal = Math.max(0.01, Number(d.d || 0.5));
   const sign = isNType ? -1 : 1;
   const kVal = sign / (nVal * (dVal / 0.5));
-  const kFormatted = (kVal >= 0 ? '+' : '') + kVal.toFixed(3);
-  const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
-  const qFormatted = isNType ? '-e' : '+e';
+  const kFormatted = `${kVal >= 0 ? '+' : ''}${kVal.toFixed(3)}`;
+  const vhFormatted = `${vh >= 0 ? '+' : ''}${vh.toFixed(3)}`;
+  const qFormatted = isNType ? '-e (电子)' : '+e (空穴)';
+  const showField = d.showField !== false;
 
-  let cy = contentTop;
-
-  // ── 顶部栏：电流 I · 磁场 B · 霍尔电压 U_H ──
-  const topH = Math.round(60 * scale);
+  // —— 1. Top 4-cell Telemetry Strip ——
+  const statY = contentTop;
+  const statH = Math.min(Math.round(70 * uiScale), Math.round(contentH * 0.145));
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.2;
-  roundRect(ctx, x, cy, w, topH, 10);
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, statY, w, statH, 12);
   ctx.fill();
   ctx.stroke();
 
-  const colW1 = w / 3;
-
-  // 电流 I
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText('电流 I', x + colW1 * 0.5, cy + Math.round(9 * scale));
-  ctx.fillStyle = P.text;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(`${Number(d.I || 0).toFixed(2)} A`, x + colW1 * 0.5, cy + Math.round(30 * scale));
-
-  // 磁场 B
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText('磁场 B', x + colW1 * 1.5, cy + Math.round(9 * scale));
-  ctx.fillStyle = P.text;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(`${Number(d.B || 0).toFixed(2)} T`, x + colW1 * 1.5, cy + Math.round(30 * scale));
-
-  // 霍尔电压 U_H（与前两项保持一致的高对比颜色 P.text）
-  drawMathFormula(
-    ctx,
-    '霍尔电压 U_{H}',
-    x + colW1 * 2.5,
-    cy + Math.round(9 * scale),
-    { fontSize: Math.round(12 * scale), color: P.muted, align: 'center', textBaseline: 'top' },
-  );
-  drawMathFormula(
-    ctx,
-    `U_{H} = ${vhFormatted}\\text{ V}`,
-    x + colW1 * 2.5,
-    cy + Math.round(30 * scale),
-    { fontSize: Math.round(15 * scale), color: P.text, align: 'center', textBaseline: 'top' },
-  );
-
-  cy += topH + gap;
-
-  // ── 中间主体框：载流子类型 ──
-  const boxH = Math.round(108 * scale);
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.4;
-  roundRect(ctx, x, cy, w, boxH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  const titlePadX = Math.round(16 * scale);
-  const titlePadY = Math.round(12 * scale);
-  ctx.fillStyle = P.title;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  const stats = [
+    { label: '工作电流 I', value: `${valI.toFixed(2)} A`, color: P.text },
+    { label: '磁感应强度 B', value: `${valB >= 0 ? '+' : ''}${valB.toFixed(2)} T`, color: primaryBlue },
+    { label: '霍尔电压 U_H', value: `${vhFormatted} V`, color: primaryBlue },
+    { label: '灵敏度 K_H', value: `${kFormatted}`, color: P.text },
+  ];
+  const colW = w / stats.length;
+  stats.forEach((st, i) => {
+    const colX = x + i * colW;
+    const cx = colX + colW / 2;
+    if (i > 0) {
+      ctx.strokeStyle = dividerStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(colX, statY + Math.round(10 * uiScale));
+      ctx.lineTo(colX, statY + statH - Math.round(10 * uiScale));
+      ctx.stroke();
+    }
+    drawMathFormula(ctx, st.label, cx, statY + Math.round(8 * uiScale), {
+      fontSize: Math.round(15 * uiScale),
+      color: P.muted,
+      align: 'center',
+      textBaseline: 'top',
+    });
+    ctx.fillStyle = st.color;
+    let vPx = Math.round(22 * uiScale);
+    ctx.font = `bold ${vPx}px "Microsoft YaHei", sans-serif`;
+    while (vPx > 13 && ctx.measureText(st.value).width > colW - Math.round(14 * uiScale)) {
+      vPx -= 1;
+      ctx.font = `bold ${vPx}px "Microsoft YaHei", sans-serif`;
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(st.value, cx, statY + Math.round(32 * uiScale));
+  });
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText('载流子类型', x + titlePadX, cy + titlePadY);
+  ctx.textBaseline = 'alphabetic';
 
-  const btnH = Math.round(44 * scale);
-  const btnY = cy + titlePadY + Math.round(28 * scale);
-  const btnGap = Math.round(12 * scale);
-  const innerPadX = Math.round(16 * scale);
-  const typeW = (w - innerPadX * 2 - btnGap) / 2;
+  // —— 2. Two-column Body ——
+  const bodyY = statY + statH + gap;
+  const bodyH = Math.max(220, contentTop + contentH - bodyY);
+  const ctrlW = Math.round((w - gap) * 0.50);
+  const resX = x + ctrlW + gap;
+  const resW = w - ctrlW - gap;
 
-  // 上角标 e⁻ / h⁺
-  drawHallButton(
-    ctx, hits, x + innerPadX, btnY, typeW, btnH,
-    'n型·电子 (e⁻)', 'hall-demo-type', { nType: true }, accentHex, isNType,
-  );
-  drawHallButton(
-    ctx, hits, x + innerPadX + typeW + btnGap, btnY, typeW, btnH,
-    'p型·空穴 (h⁺)', 'hall-demo-type', { nType: false }, accentHex, !isNType,
-  );
+  // Left Column: Sub-card A (4 Stitched Sliders) + Sub-card B (2x2 Action Buttons)
+  const btnGap = Math.round(8 * uiScale);
+  const actBtnH = Math.min(Math.round(40 * uiScale), Math.max(28, Math.round(bodyH * 0.088)));
+  const subGap = Math.round(9 * uiScale);
+  const subPad = Math.min(Math.round(12 * uiScale), Math.max(8, Math.round(bodyH * 0.024)));
+  const subHeadH = Math.round(24 * uiScale);
 
-  cy += boxH + gap;
+  const groupBH = subPad * 2 + subHeadH + Math.round(6 * uiScale) + actBtnH * 2 + btnGap;
+  const groupAH = Math.max(140, bodyH - groupBH - subGap);
+  const groupBY = bodyY + groupAH + subGap;
 
-  // ── 底部栏：载流子电量 q · 载流子浓度 n · 元件厚度 d · 元件灵敏度 K_H ──
-  const botH = Math.round(60 * scale);
+  // Sub-card A: Continuous parameter sliders
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.2;
-  roundRect(ctx, x, cy, w, botH, 10);
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, bodyY, ctrlW, groupAH, 12);
   ctx.fill();
   ctx.stroke();
 
-  const colW3 = w / 4;
+  const cx = x + pad;
+  const cw = ctrlW - pad * 2;
+  let gy = bodyY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(17 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('实验参数连续调节', cx, gy + Math.round(14 * uiScale));
+  ctx.fillStyle = primaryBlue;
+  ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(d.paused ? '状态: 已暂停' : '状态: 载流子运动', cx + cw, gy + Math.round(14 * uiScale));
+  ctx.textAlign = 'left';
+  gy += subHeadH + Math.round(6 * uiScale);
 
-  // 1. 载流子电量 q
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+  const sliderGap = Math.round(6 * uiScale);
+  const sliderAvail = groupAH - (gy - bodyY) - subPad - sliderGap * 3;
+  const sliderH = Math.min(Math.round(74 * uiScale), Math.max(Math.round(44 * uiScale), Math.floor(sliderAvail / 4)));
+
+  const drawBoxSlider = (opts) => {
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.26)' : 'rgba(56, 189, 248, 0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, cx, opts.y, cw, opts.h, 9);
+    ctx.fill();
+    ctx.stroke();
+    drawParamSlider(ctx, hits, {
+      ...opts,
+      x: cx + Math.round(6 * uiScale),
+      w: cw - Math.round(12 * uiScale),
+      accentHex: primaryBlue,
+      largeType: true,
+      hideRange: true,
+    });
+  };
+
+  const demoSliders = [
+    { label: '电流 I', key: 'I', value: valI, min: 0, max: 2, step: 0.05, unit: 'A', digits: 2 },
+    { label: '磁场 B', key: 'B', value: valB, min: -2, max: 2, step: 0.05, unit: 'T', digits: 2 },
+    { label: '载流子浓度 n', key: 'n', value: nVal, min: 0.3, max: 2.5, step: 0.05, unit: 'm⁻³', digits: 2 },
+    { label: '元件厚度 d', key: 'd', value: dVal, min: 0.1, max: 1.2, step: 0.05, unit: 'm', digits: 2 },
+  ];
+  demoSliders.forEach((sp, i) => {
+    drawBoxSlider({
+      y: gy + i * (sliderH + sliderGap),
+      h: sliderH,
+      label: sp.label,
+      value: sp.value,
+      min: sp.min,
+      max: sp.max,
+      step: sp.step,
+      setAction: 'hall-demo-set',
+      key: sp.key,
+      unit: sp.unit,
+      digits: sp.digits,
+    });
+  });
+
+  // Sub-card B: 2x2 Action buttons
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, x, groupBY, ctrlW, groupBH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  let by = groupBY + subPad;
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(16 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('演示与视图控制', cx, by + Math.round(13 * uiScale));
+  by += subHeadH + Math.round(6 * uiScale);
+
+  const halfBtnW = (cw - btnGap) / 2;
+  const actPx = Math.round(16 * uiScale);
+  drawHallButton(ctx, hits, cx, by, halfBtnW, actBtnH, '反向磁场', 'hall-demo-flip', {}, primaryBlue, false, { fontPx: actPx });
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, by, halfBtnW, actBtnH, d.paused ? '继续动画' : '暂停动画', 'hall-demo-pause', {}, primaryBlue, !!d.paused, { fontPx: actPx });
+  by += actBtnH + btnGap;
+  drawHallButton(ctx, hits, cx, by, halfBtnW, actBtnH, showField ? '隐藏磁场 B' : '显示磁场 B', 'hall-demo-field', {}, primaryBlue, showField, { fontPx: actPx });
+  drawHallButton(ctx, hits, cx + halfBtnW + btnGap, by, halfBtnW, actBtnH, '重置实验', 'hall-demo-reset', {}, primaryBlue, false, { fontPx: actPx });
+
+  // —— Right Column: Carrier Type + 2x2 Readouts + Formula Banner ——
+  const rx = resX + pad;
+  const rw = resW - pad * 2;
+  const cardGap = subGap;
+  const rTopH = Math.min(Math.round(126 * uiScale), Math.round(bodyH * 0.29));
+  const rBotH = Math.min(Math.round(124 * uiScale), Math.round(bodyH * 0.28));
+  const rMidY = bodyY + rTopH + cardGap;
+  const rMidH = Math.max(96, bodyH - rTopH - rBotH - cardGap * 2);
+  const rBotY = rMidY + rMidH + cardGap;
+
+  // R1: Carrier Type selector
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, resX, bodyY, resW, rTopH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(17 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('载流子类型', rx, bodyY + subPad + Math.round(14 * uiScale));
+  ctx.fillStyle = deepBlue;
+  ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText(isNType ? '多数载流子: 电子' : '多数载流子: 空穴', rx + rw, bodyY + subPad + Math.round(14 * uiScale));
+  ctx.textAlign = 'left';
+
+  const typeBtnY = bodyY + subPad + subHeadH + Math.round(8 * uiScale);
+  const typeBtnH = Math.max(32, bodyY + rTopH - subPad - typeBtnY);
+  const halfRW = (rw - btnGap) / 2;
+  drawHallButton(ctx, hits, rx, typeBtnY, halfRW, typeBtnH, 'n型·电子 (e⁻)', 'hall-demo-type', { nType: true }, primaryBlue, isNType, { fontPx: Math.round(16 * uiScale) });
+  drawHallButton(ctx, hits, rx + halfRW + btnGap, typeBtnY, halfRW, typeBtnH, 'p型·空穴 (h⁺)', 'hall-demo-type', { nType: false }, primaryBlue, !isNType, { fontPx: Math.round(16 * uiScale) });
+
+  // R2: 2x2 Physical Parameters Grid
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.6 : 1.2;
+  roundRect(ctx, resX, rMidY, resW, rMidH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const cellGap = Math.round(8 * uiScale);
+  const cellW = (rw - cellGap) / 2;
+  const cellH = (rMidH - subPad * 2 - cellGap) / 2;
+  const cells = [
+    { k: '载流子电量 q', v: qFormatted, c: P.text },
+    { k: '载流子浓度 n', v: `${nVal.toFixed(2)} m⁻³`, c: P.text },
+    { k: '元件厚度 d', v: `${dVal.toFixed(2)} m`, c: P.text },
+    { k: '灵敏度 K_H', v: `${kFormatted} V/(A·T)`, c: primaryBlue },
+  ];
+  cells.forEach((cell, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const cxCell = rx + col * (cellW + cellGap);
+    const cyCell = rMidY + subPad + row * (cellH + cellGap);
+    ctx.fillStyle = P.panelAlt;
+    ctx.strokeStyle = isLight ? 'rgba(148, 163, 184, 0.24)' : 'rgba(56, 189, 248, 0.18)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, cxCell, cyCell, cellW, cellH, 9);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(13 * uiScale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(cell.k, cxCell + Math.round(10 * uiScale), cyCell + Math.round(cellH * 0.34));
+
+    ctx.fillStyle = cell.c;
+    let cPx = Math.round(18 * uiScale);
+    ctx.font = `bold ${cPx}px "Microsoft YaHei", sans-serif`;
+    while (cPx > 12 && ctx.measureText(cell.v).width > cellW - Math.round(18 * uiScale)) {
+      cPx -= 1;
+      ctx.font = `bold ${cPx}px "Microsoft YaHei", sans-serif`;
+    }
+    ctx.fillText(cell.v, cxCell + Math.round(10 * uiScale), cyCell + Math.round(cellH * 0.78));
+  });
+
+  // R3: Bottom Formula & Lorentz Balance Card
+  ctx.fillStyle = softFill;
+  ctx.strokeStyle = softStroke;
+  ctx.lineWidth = isDisplay ? 1.4 : 1.1;
+  roundRect(ctx, resX, rBotY, resW, rBotH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  drawMathFormula(
+    ctx,
+    `U_{H} = K_{H} \\cdot I \\cdot B = ${vhFormatted}\\text{ V}`,
+    resX + resW / 2,
+    rBotY + Math.round(rBotH * 0.38),
+    {
+      fontSize: Math.round(21 * uiScale),
+      color: primaryBlue,
+      align: 'center',
+      textBaseline: 'middle',
+      fontWeight: 'bold',
+    },
+  );
+  ctx.fillStyle = P.text;
+  ctx.font = `${Math.round(14 * uiScale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText('载流子电量 q', x + colW3 * 0.5, cy + Math.round(9 * scale));
-  ctx.fillStyle = P.text;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(qFormatted, x + colW3 * 0.5, cy + Math.round(30 * scale));
-
-  // 2. 载流子浓度 n
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText('载流子浓度 n', x + colW3 * 1.5, cy + Math.round(9 * scale));
-  ctx.fillStyle = P.text;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(`${nVal.toFixed(2)} m⁻³`, x + colW3 * 1.5, cy + Math.round(30 * scale));
-
-  // 3. 元件厚度 d
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText('元件厚度 d', x + colW3 * 2.5, cy + Math.round(9 * scale));
-  ctx.fillStyle = P.text;
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(`${dVal.toFixed(2)} m`, x + colW3 * 2.5, cy + Math.round(30 * scale));
-
-  // 4. 元件灵敏度 K_H（与前三栏保持相同大字号和高对比度颜色 P.text）
-  drawMathFormula(
-    ctx,
-    '元件灵敏度 K_{H}',
-    x + colW3 * 3.5,
-    cy + Math.round(9 * scale),
-    { fontSize: Math.round(11 * scale), color: P.muted, align: 'center', textBaseline: 'top' },
-  );
-  drawMathFormula(
-    ctx,
-    `${kFormatted}\\text{ V/(A}\\cdot\\text{T)}`,
-    x + colW3 * 3.5,
-    cy + Math.round(30 * scale),
-    { fontSize: Math.round(13 * scale), color: P.text, align: 'center', textBaseline: 'top' },
-  );
+  const noteStr = Math.abs(valB) < 0.01 || valI < 0.01
+    ? '调节 I 与 B 非零即可观察载流子受洛伦兹力横向偏转'
+    : `洛伦兹力与横向霍尔电场平衡 · 极性受 ${isNType ? '电子 (-e)' : '空穴 (+e)'} 符号决定`;
+  ctx.fillText(noteStr, resX + resW / 2, rBotY + Math.round(rBotH * 0.74), resW - Math.round(20 * uiScale));
+  ctx.textAlign = 'left';
 }
 
 export function getHoloScreenLayoutSize(opts = {}) {
@@ -2348,7 +3262,7 @@ export function getHoloScreenLayoutSize(opts = {}) {
       hall_effect: 880,
       gauss_theorem: 880,
       electric_field: 920,
-      faraday_induction: 780,
+      faraday_induction: 820,
       induced_electric_field: 820,
       multi_slit_diffraction: 1040,
       reflection: 980,
@@ -2391,7 +3305,7 @@ export function getHoloScreenLayoutSize(opts = {}) {
     hall_effect: 600,
     gauss_theorem: 600,
     electric_field: 620,
-    faraday_induction: 580,
+    faraday_induction: 660,
     induced_electric_field: 600,
   };
   const denseHeight = denseExperimentHeights[experiment.id];
@@ -3212,6 +4126,8 @@ export function pickHoloScreen(u, v, W, H, hits, _facingSide = 1) {
     : [[u * W, (1 - v) * H], [(1 - u) * W, (1 - v) * H]];
 
   for (const [px, py] of candidates) {
+    const exact = hitTestPoint(px, py, hits, 0);
+    if (exact) return withPickPoint(exact, px, py);
     // Generous pad: free-aim / AR UV picks are much noisier than mouse on 2D UI.
     const hit = hitTestPoint(px, py, hits, 22);
     if (hit) return withPickPoint(hit, px, py);

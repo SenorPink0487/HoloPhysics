@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createHandlers } from '../src/experiments/electro.js';
-import { drawHoloScreen, getHoloScreenLayoutSize } from '../src/holoScreen.js';
+import { drawHoloScreen, getHoloScreenLayoutSize, pickHoloScreen, valueFromParamSliderPick } from '../src/holoScreen.js';
 
 function createMockCtx() {
   return {
@@ -116,4 +116,46 @@ test('Hall effect Helmholtz coil data points match theoretical curve', () => {
     hud: { expId: 'hall_effect', data: state.data },
   });
   assert.ok(res?.hits?.length > 0);
+});
+
+test('Hall effect floating display stitches Im, Is, probePos, coil/turns sliders with step quantization and record button', () => {
+  const { state, handlers } = createHallContext();
+  state.data.identified = { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true };
+  state.stepIndex = 1;
+  state.data.stepIndex = 1;
+
+  for (const target of ['helmholtz', 'solenoid']) {
+    state.data.wires = target === 'helmholtz'
+      ? [{ from: 'out_red', to: 'hh_red', color: '#ef4444' }, { from: 'out_black', to: 'hh_black', color: '#1e293b' }]
+      : [{ from: 'out_red', to: 'sol_red', color: '#ef4444' }, { from: 'out_black', to: 'sol_black', color: '#1e293b' }];
+    handlers.onUiAction('hall-target', { target });
+    const mockCtx = createMockCtx();
+    const res = drawHoloScreen(mockCtx, 1152, 768, {
+      surface: 'display',
+      theme: 'light',
+      active: true,
+      hud: {
+        running: true,
+        station: { id: 'electro', name: '电磁学实验台' },
+        experiment: { id: 'hall_effect', name: '霍尔效应测磁' },
+        data: state.data,
+      },
+    });
+    const sliders = res.hits.filter((h) => h.role === 'param-slider');
+    const keys = sliders.map((s) => s.key).sort();
+    if (target === 'helmholtz') {
+      assert.deepEqual(keys, ['Im', 'Is', 'probePos', 'rightCoilPos']);
+    } else {
+      assert.deepEqual(keys, ['Im', 'Is', 'probePos', 'turns']);
+    }
+    const probeHit = sliders.find((s) => s.key === 'probePos');
+    const px = probeHit.trackX + probeHit.trackW * 0.63;
+    const py = probeHit.y + probeHit.h * 0.5;
+    const pick = pickHoloScreen(px / 1152, 1 - py / 768, 1152, 768, res.hits, 1);
+    assert.equal(pick?.key, 'probePos');
+    const val = valueFromParamSliderPick(pick);
+    const step = target === 'helmholtz' ? 0.01 : 0.5;
+    assert.ok(Math.abs(Math.round(val / step) * step - val) < 1e-6, `probePos ${val} should quantize to step ${step}`);
+    assert.ok(res.hits.some((h) => h.action === 'hall-record'), 'missing hall-record button on floating display');
+  }
 });

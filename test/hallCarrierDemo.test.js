@@ -465,5 +465,38 @@ test('Hall effect table displays X (m) and 3 decimals for Helmholtz, X (cm) and 
   assert.ok(mockSol.texts.includes('16.0'), 'Solenoid table must format with 1 decimal place');
 });
 
+test('Hall carrier demo floating display stitches all 4 sliders and control buttons inside bounds', () => {
+  const ctx = {
+    save: () => {}, restore: () => {}, clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+    beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, arc: () => {}, arcTo: () => {},
+    closePath: () => {}, fill: () => {}, stroke: () => {}, fillText: () => {}, strokeText: () => {},
+    measureText: (t) => ({ width: String(t || '').length * 10 }),
+    setLineDash: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }), clip: () => {},
+  };
+  for (const [w, h, surface] of [[1024, 540, 'full'], [1152, 768, 'display']]) {
+    const res = drawHoloScreen(ctx, w, h, {
+      surface,
+      theme: 'light',
+      active: true,
+      hud: {
+        running: true,
+        station: { id: 'electro', name: '电磁学实验台' },
+        experiment: { id: 'hall_carrier_demo', name: '霍尔效应原理' },
+        data: { I: 1.2, B: -0.8, n: 1.4, d: 0.6, vh: -0.5, nType: true },
+      },
+    });
+    const keys = res.hits.filter((hit) => hit.role === 'param-slider').map((hit) => hit.key);
+    assert.deepEqual(keys.sort(), ['B', 'I', 'd', 'n']);
+    for (const hit of res.hits) {
+      assert.ok(hit.y >= 0 && hit.y + hit.h <= h, `hit ${hit.id || hit.action} overflowed ${w}x${h}: y=${hit.y} h=${hit.h}`);
+    }
+    const actions = new Set(res.hits.map((hit) => hit.action));
+    for (const act of ['hall-demo-type', 'hall-demo-flip', 'hall-demo-pause', 'hall-demo-field', 'hall-demo-reset']) {
+      assert.ok(actions.has(act), `missing stitched action: ${act} on ${w}x${h}`);
+    }
+  }
+});
+
 
 
