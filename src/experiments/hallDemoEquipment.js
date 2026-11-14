@@ -133,7 +133,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
   root.name = 'hall-effect-carrier-demo';
   root.visible = false;
   root.scale.setScalar(tabletop ? 0.28 : 1);
-  root.position.set(0, tabletop ? 0.34 : 0, tabletop ? 0.02 : 0);
+  root.position.set(0, tabletop ? 0.28 : 0, tabletop ? 0.02 : 0);
 
   const body = new THREE.Group();
   root.add(body);

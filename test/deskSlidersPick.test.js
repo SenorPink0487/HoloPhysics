@@ -38,7 +38,7 @@ globalThis.document = {
 const { createDeskSliderPanel } = await import('../src/scene/shared/deskSliders.js');
 
 const INDUCED_SPECS = [
-  { key: 'R', label: '半径 R', min: 0.8, max: 3.0, value: 0.81, setAction: 'induced-e-set', action: 'induced-e-slider' },
+  { key: 'R', label: '半径 R', min: 0.10, max: 0.80, value: 0.45, setAction: 'induced-e-set', action: 'induced-e-slider' },
   { key: 'dBdt', label: 'dB/dt', min: -6.25, max: 6.25, value: 5.68, setAction: 'induced-e-set', action: 'induced-e-slider' },
 ];
 

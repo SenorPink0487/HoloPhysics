@@ -81,7 +81,6 @@ export const station = {
       goal: '调节励磁与霍尔电流，扫描探头位置并比较亥姆霍兹线圈和长螺线管的磁场分布',
       theory: 'U_H = K_H I_s B；由霍尔电压测磁感应强度 B',
       steps: [
-        { id: 'identify', text: '认识器材：线圈、霍尔探头与 HCC-2 测磁仪', hint: '按 01→04 顺序瞄准 3D 器材点击确认；选对/选错均有提示' },
         { id: 'configure', text: '选择测量对象并确认电流方向', hint: '在全息屏选择亥姆霍兹线圈或长螺线管' },
         { id: 'energize', text: '设置励磁电流 Im 与霍尔电流 Is', hint: '在桌右侧滑条调节 Im / Is' },
         { id: 'scan', text: '移动探头并记录至少 3 组 B–X 数据', hint: '调节 X 后在桌面控制面板点击「记录当前读数」，系统由 VH 换算 B' },
@@ -130,8 +129,15 @@ export function getIrregularBump(theta, phi, seed = 0) {
            + a3 * Math.sin((f1 + f3) * phi + phase1);
 }
 
-export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere', seed = 0) {
-  const r = Number(radius || 2.4);
+export const ELECTRIC_WORLD_SCALE = 1.3;
+export const ELECTRIC_CHARGE_BOUND = 0.45;
+export const ELECTRIC_PROBE_BOUND = 0.50;
+export const GAUSS_R_MIN = 0.12;
+export const GAUSS_R_MAX = 0.42;
+export const GAUSS_R_DEFAULT = 0.24;
+
+export function gaussEnclosedCharge(charges = [], radius = GAUSS_R_DEFAULT, shape = 'sphere', seed = 0) {
+  const r = Number(radius || GAUSS_R_DEFAULT);
   const s = String(shape || 'sphere');
   const seedNum = Number(seed || 0);
   return charges.reduce((sum, charge) => {
@@ -152,9 +158,9 @@ export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere'
       const theta = Math.atan2(z, x);
       const phi = Math.acos(THREE.MathUtils.clamp(y / (dist || 1), -1, 1));
       const bump = getIrregularBump(theta, phi, seedNum);
-      enclosed = dist < r * bump - 1e-4;
+      enclosed = dist < r * bump - 1e-5;
     } else {
-      enclosed = Math.hypot(x, y, z) < r - 1e-4;
+      enclosed = Math.hypot(x, y, z) < r - 1e-5;
     }
 
     return enclosed ? sum + Number(charge?.q || 0) : sum;
@@ -162,7 +168,7 @@ export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere'
 }
 
 /** Φ_E = Q内/ε₀（Q 由界面 μC 换算为 C） */
-export function gaussFlux(charges = [], radius = 2.4, epsilon0 = EPSILON_0, shape = 'sphere', seed = 0) {
+export function gaussFlux(charges = [], radius = GAUSS_R_DEFAULT, epsilon0 = EPSILON_0, shape = 'sphere', seed = 0) {
   const qC = chargeUiToCoulomb(gaussEnclosedCharge(charges, radius, shape, seed));
   return qC / Number(epsilon0 || EPSILON_0);
 }
@@ -172,12 +178,12 @@ export function gaussFieldAt(charges = [], point = {}, options = {}) {
   return electricFieldAt(charges, point, options);
 }
 
-export function gaussMeanNormalField(charges = [], radius = 2.4) {
+export function gaussMeanNormalField(charges = [], radius = GAUSS_R_DEFAULT) {
   const r = Math.max(1e-6, Number(radius || 0));
   if (charges.length === 1) {
     const charge = charges[0];
     const distance = Math.hypot(Number(charge.x || 0), Number(charge.y || 0), Number(charge.z || 0));
-    if (distance < 0.12 && distance < r && Math.abs(Number(charge.q || 0)) > 0.01) {
+    if (distance < 0.012 && distance < r && Math.abs(Number(charge.q || 0)) > 0.01) {
       // 球心点电荷：E = k|Q|/R²
       return (K_COULOMB * Math.abs(chargeUiToCoulomb(charge.q))) / (r * r);
     }
@@ -204,7 +210,7 @@ export function gaussMeanNormalField(charges = [], radius = 2.4) {
  * direction is any non-zero vector; n is taken as its unit vector.
  * Positive ⇒ outward flux through that patch, negative ⇒ inward.
  */
-export function gaussNormalFluxDensity(charges = [], direction = {}, radius = 2.4) {
+export function gaussNormalFluxDensity(charges = [], direction = {}, radius = GAUSS_R_DEFAULT) {
   const r = Math.max(1e-6, Number(radius || 0));
   const nx = Number(direction?.x || 0);
   const ny = Number(direction?.y || 0);
@@ -237,7 +243,7 @@ export function gaussFluxParticleRadiusNorm(density, progress, options = {}) {
 /** Advection speed for a flux tracer; stronger |E·n| streams move faster. */
 export function gaussFluxParticleSpeed(density, options = {}) {
   const abs = Math.abs(Number(density) || 0);
-  const ref = Number(options.refAbs ?? K_COULOMB * 1e-6); // ~9×10³ N/C
+  const ref = Number(options.refAbs ?? K_COULOMB * 1e-6 * 20);
   const base = Number(options.base ?? 0.38);
   const gain = Number(options.gain ?? 0.72);
   const maxExtra = Number(options.maxExtra ?? 1.15);
@@ -250,8 +256,8 @@ export function gaussFluxParticleSpeed(density, options = {}) {
  */
 export function gaussFluxParticleEmphasis(density, radiusNorm, options = {}) {
   const abs = Math.abs(Number(density) || 0);
-  // SI 下 |E| 约 10³ N/C 量级（1 μC、米级距离）
-  const refAbs = Number(options.refAbs ?? K_COULOMB * 1e-6 * 0.15);
+  // SI 下 |E| 约 10⁵ N/C 量级（1 μC、零点几米距离）
+  const refAbs = Number(options.refAbs ?? K_COULOMB * 1e-6 * 3);
   const strength = 0.42 + 0.58 * Math.min(1, abs / refAbs);
   const near = Math.abs(Number(radiusNorm) - 1);
   const surfaceBoost = 0.72 + 0.38 * Math.exp(-(near * near) / Number(options.surfaceWidth || 0.07));
@@ -263,7 +269,7 @@ export function gaussFluxParticleEmphasis(density, radiusNorm, options = {}) {
  * charges[].q 为界面 μC 读数；point 坐标单位 m。
  */
 export function electricFieldAt(charges = [], point = {}, options = {}) {
-  const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.04));
+  const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.004));
   const field = { x: 0, y: 0, z: 0 };
   for (const charge of charges) {
     const dx = Number(point.x || 0) - Number(charge?.x || 0);
@@ -279,7 +285,7 @@ export function electricFieldAt(charges = [], point = {}, options = {}) {
 
 /** 电势 φ = Σ kQᵢ / rᵢ（V，取无穷远处为零） */
 export function electricPotentialAt(charges = [], point = {}, options = {}) {
-  const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.04));
+  const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.004));
   let potential = 0;
   for (const charge of charges) {
     const dx = Number(point.x || 0) - Number(charge?.x || 0);
@@ -338,13 +344,13 @@ export function hallDemoForce(data) {
 
 // Source apparatus constants (physical coordinates, before the scene adapter's
 // visual scale/offset conversion).
-export const FARADAY_ROD_LENGTH = 4;
-export const FARADAY_X_END = 0.25;
-export const FARADAY_X_MIN = 1.2;
-export const FARADAY_X_MAX = 8;
-export const FARADAY_SCALE = 0.12;
+export const FARADAY_ROD_LENGTH = 0.4;
+export const FARADAY_X_END = 0.025;
+export const FARADAY_X_MIN = 0.10;
+export const FARADAY_X_MAX = 0.80;
+export const FARADAY_SCALE = 1.2;
 export const FARADAY_OFFSET_X = -0.48;
-export const FARADAY_Y = 0.08;
+export const FARADAY_Y = 0.008;
 
 export function faradayArea(x, rodLength = FARADAY_ROD_LENGTH, xEnd = FARADAY_X_END) {
   return Math.max(0, Number(x || 0) - xEnd) * rodLength;
@@ -375,9 +381,12 @@ export function faradaySenseLabel(sense) {
 // —— Induced electric field (Maxwell–Faraday / 感生电场) ——
 // Uniform axial B confined to a cylinder of radius R. Changing B produces
 // azimuthal E with |E|∝r inside and |E|∝1/r outside (normalized SI-like units).
-export const INDUCED_E_R_MIN = 0.8;
-export const INDUCED_E_R_MAX = 3.0;
-export const INDUCED_E_PROBE_R_MAX = 4.5;
+export const INDUCED_E_R_MIN = 0.10;
+export const INDUCED_E_R_MAX = 0.80;
+export const INDUCED_E_PROBE_R_MIN = 0.05;
+export const INDUCED_E_PROBE_R_MAX = 1.15;
+export const INDUCED_E_DISK_RADIUS = 1.20;
+export const INDUCED_E_WORLD_SCALE = 0.45;
 export const INDUCED_E_AMP_MAX = 2.5;
 export const INDUCED_E_OMEGA_MAX = 2.5;
 
@@ -460,13 +469,6 @@ export function inducedEVectorAt(point, R, dBdt) {
   return { x: dir.x * mag, y: 0, z: dir.z * mag, magnitude: mag, sense, r };
 }
 
-const HALL_PART_NAMES = {
-  hall_helmholtz: '亥姆霍兹线圈',
-  hall_solenoid: '长螺线管',
-  hall_probe: '霍尔探头与标尺',
-  hall_console: 'HCC-2 测磁仪',
-};
-const HALL_PART_ROLES = Object.keys(HALL_PART_NAMES);
 const HALL_TERMINAL_KEYS = {
   hall_terminal_solenoid: 'solenoid',
   hall_terminal_helmholtz: 'helmholtz',
@@ -768,20 +770,20 @@ export function createHandlers(ctx) {
     if (expId === 'faraday_induction') {
       return {
         B: -1,
-        x: 4.5,
+        x: 0.45,
         rodLength: FARADAY_ROD_LENGTH,
         xEnd: FARADAY_X_END,
         xMin: FARADAY_X_MIN,
         xMax: FARADAY_X_MAX,
         showField: true,
-        area: faradayArea(4.5),
-        flux: faradayFlux(-1, 4.5),
+        area: faradayArea(0.45),
+        flux: faradayFlux(-1, 0.45),
         currentSense: 'none',
         measureMode: null,
         // Preset-then-play: set target + duration, then animate smoothly.
         animChannel: 'B', // 'B' | 'x'
         targetB: 1.5,
-        targetX: 6.5,
+        targetX: 0.65,
         animDuration: 1.5,
         pendingAnim: null,
         liveEmf: 0,
@@ -800,7 +802,7 @@ export function createHandlers(ctx) {
         records: [],
         completed: false,
         _time: 0,
-        _prevX: 4.5,
+        _prevX: 0.45,
         _prevB: -1,
         _dragDirectionB: 0,
         _dragReverseDistanceB: 0,
@@ -825,12 +827,6 @@ export function createHandlers(ctx) {
         hallDragArmed: false,
         hallDragging: false,
         hallDragOffset: null,
-        identified: {
-          hall_helmholtz: false,
-          hall_solenoid: false,
-          hall_probe: false,
-          hall_console: false,
-        },
         vh: 0,
         records: [],
         showCurve: false,
@@ -861,7 +857,7 @@ export function createHandlers(ctx) {
     }
     if (expId === 'gauss_theorem') {
       return {
-        radius: 2.4,
+        radius: GAUSS_R_DEFAULT,
         charges: [{ id: 1, q: 1, x: 0, y: 0, z: 0 }],
         selectedId: 1,
         nextChargeId: 2,
@@ -874,12 +870,12 @@ export function createHandlers(ctx) {
         qEnclosed: 1,
         // Φ_E = Q/ε₀，Q = 1 μC；E = kQ/R²
         flux: chargeUiToCoulomb(1) / EPSILON_0,
-        meanField: (K_COULOMB * chargeUiToCoulomb(1)) / (2.4 ** 2),
+        meanField: (K_COULOMB * chargeUiToCoulomb(1)) / (GAUSS_R_DEFAULT ** 2),
         _hudThrottle: 0,
       };
     }
     if (expId === 'electric_field') {
-      const probe = { x: 2, y: 0, z: 0.8, q0: 1 };
+      const probe = { x: 0.20, y: 0, z: 0.08, q0: 1 };
       const charges = [{ id: 1, q: 1, x: 0, y: 0, z: 0 }];
       const field = electricFieldAt(charges, probe);
       const force = electricForceAt(charges, probe, probe.q0);
@@ -896,7 +892,7 @@ export function createHandlers(ctx) {
         showAxes: false,
         gaussShape: 'sphere',
         gaussSeed: 0,
-        radius: 2.4,
+        radius: GAUSS_R_DEFAULT,
         qEnclosed: 1,
         flux: 1 * 1e-6 / EPSILON_0,
         meanField: 0,
@@ -922,14 +918,14 @@ export function createHandlers(ctx) {
       };
     }
     if (expId === 'induced_electric_field') {
-      const R = 2;
+      const R = 0.50;
       // Default: manual control (static B + dB/dt). Auto sine drive is opt-in.
       const amp = 1.2;
       const omega = 0.9;
       const phase = 0;
       const B = 1.0;
       const dBdt = 1.1;
-      const probeR = 1.4;
+      const probeR = 0.35;
       const probeAngle = 0.35;
       const probe = {
         x: probeR * Math.cos(probeAngle),
@@ -938,6 +934,7 @@ export function createHandlers(ctx) {
         q0: 1,
       };
       const field = inducedEVectorAt(probe, R, dBdt);
+      const probeQC = chargeUiToCoulomb(probe.q0);
       return {
         R,
         amp,
@@ -958,9 +955,9 @@ export function createHandlers(ctx) {
         field,
         magnitudeE: field.magnitude,
         force: {
-          x: field.x * probe.q0,
+          x: field.x * probeQC,
           y: 0,
-          z: field.z * probe.q0,
+          z: field.z * probeQC,
         },
         sense: field.sense,
         senseLabel: inducedESenseLabel(field.sense),
@@ -1083,7 +1080,7 @@ export function createHandlers(ctx) {
     const freeX = !lock.x;
     const freeY = !lock.y;
     const freeZ = !lock.z;
-    const scale = 0.025;
+    const scale = 0.0025;
     const shiftKey = electricDragWantsShiftZ(data);
 
     const camera = equipment.electro?.getCamera?.();
@@ -1161,7 +1158,7 @@ export function createHandlers(ctx) {
 
     const shiftKey = electricDragWantsShiftZ(data) || !!context.shiftKey;
     const s = data.dragStart;
-    const WORLD_SCALE = 0.13;
+    const WORLD_SCALE = ELECTRIC_WORLD_SCALE;
 
     const root = resolveElectroApparatusRoot('electric-field');
     if (root) {
@@ -1209,8 +1206,8 @@ export function createHandlers(ctx) {
     const targetObj = data.dragTarget === 'probe' ? data.probe : selectedElectricCharge(data);
     if (!targetObj) return false;
 
-    const lo = data.dragTarget === 'probe' ? -5 : -4.5;
-    const hi = data.dragTarget === 'probe' ? 5 : 4.5;
+    const lo = data.dragTarget === 'probe' ? -ELECTRIC_PROBE_BOUND : -ELECTRIC_CHARGE_BOUND;
+    const hi = data.dragTarget === 'probe' ? ELECTRIC_PROBE_BOUND : ELECTRIC_CHARGE_BOUND;
 
     if (freeX) targetObj.x = clamp(hit.x / WORLD_SCALE, lo, hi);
     if (freeY) {
@@ -1254,8 +1251,8 @@ export function createHandlers(ctx) {
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hit = new THREE.Vector3();
     if (_localRay.intersectPlane(plane, hit)) {
-      charge.x = clamp(hit.x / 0.13, -5, 5);
-      charge.y = clamp(hit.z / 0.13, -5, 5);
+      charge.x = clamp(hit.x / ELECTRIC_WORLD_SCALE, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
+      charge.y = clamp(hit.z / ELECTRIC_WORLD_SCALE, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
       data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
       data._aimVisible = true;
       if (state.stepIndex < 1 && (Math.abs(hit.x) > 0.1 || Math.abs(hit.z) > 0.1)) setStep('cross');
@@ -1281,8 +1278,8 @@ export function createHandlers(ctx) {
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hit = new THREE.Vector3();
     if (_localRay.intersectPlane(plane, hit)) {
-      data.probe.x = clamp(hit.x / 0.13, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
-      data.probe.z = clamp(hit.z / 0.13, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+      data.probe.x = clamp(hit.x / INDUCED_E_WORLD_SCALE, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+      data.probe.z = clamp(hit.z / INDUCED_E_WORLD_SCALE, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
       data.probe.y = 0;
       data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
       data._aimVisible = true;
@@ -1292,7 +1289,7 @@ export function createHandlers(ctx) {
         data.probe.x *= s;
         data.probe.z *= s;
       }
-      if (state.stepIndex < 1 && (Math.abs(data.probe.x) > 0.1 || Math.abs(data.probe.z) > 0.1)) setStep('probe');
+      if (state.stepIndex < 1 && (Math.abs(data.probe.x) > 0.03 || Math.abs(data.probe.z) > 0.03)) setStep('probe');
       syncInducedElectric(data, false);
       return true;
     }
@@ -1319,7 +1316,7 @@ export function createHandlers(ctx) {
       data.dragging = true;
       const hitSimX = (hit.x - FARADAY_OFFSET_X) / FARADAY_SCALE;
       if (!Number.isFinite(data.dragOffsetSimX)) {
-        data.dragOffsetSimX = clamp((data.x || 4.5) - hitSimX, -0.3, 0.3);
+        data.dragOffsetSimX = clamp((data.x || 0.45) - hitSimX, -0.03, 0.03);
       }
       const targetX = hitSimX + (data.dragOffsetSimX || 0);
       const nextX = clamp(targetX, data.xMin, data.xMax);
@@ -1390,16 +1387,16 @@ export function createHandlers(ctx) {
     if (data.dragTarget === 'probe') {
       const p = data.probe;
       const s = data.dragStart;
-      applyAxis(p, 'x', freeX, s.x, ox, -5, 5);
-      applyAxis(p, 'y', freeY, s.y, oy, -5, 5);
-      applyAxis(p, 'z', freeZ, s.z, oz, -5, 5);
+      applyAxis(p, 'x', freeX, s.x, ox, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
+      applyAxis(p, 'y', freeY, s.y, oy, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
+      applyAxis(p, 'z', freeZ, s.z, oz, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
     } else {
       const charge = selectedElectricCharge(data);
       if (!charge) return false;
       const s = data.dragStart;
-      applyAxis(charge, 'x', freeX, s.x, ox, -4.5, 4.5);
-      applyAxis(charge, 'y', freeY, s.y, oy, -4.5, 4.5);
-      applyAxis(charge, 'z', freeZ, s.z, oz, -4.5, 4.5);
+      applyAxis(charge, 'x', freeX, s.x, ox, -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
+      applyAxis(charge, 'y', freeY, s.y, oy, -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
+      applyAxis(charge, 'z', freeZ, s.z, oz, -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
     }
     return true;
   }
@@ -1423,10 +1420,10 @@ export function createHandlers(ctx) {
       rx = camRight.x; rz = camRight.z;
       ux = -camUp.x; uz = -camUp.z;
     }
-    const ox = (dx * rx + dy * ux) * 0.025;
-    const oy = (dx * rz + dy * uz) * 0.025;
-    charge.x = clamp(Number(data.dragStartX || 0) + ox, -5, 5);
-    charge.y = clamp(Number(data.dragStartY || 0) + oy, -5, 5);
+    const ox = (dx * rx + dy * ux) * 0.0025;
+    const oy = (dx * rz + dy * uz) * 0.0025;
+    charge.x = clamp(Number(data.dragStartX || 0) + ox, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
+    charge.y = clamp(Number(data.dragStartY || 0) + oy, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
     if (state.stepIndex < 1 && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) setStep('cross');
     return true;
   }
@@ -1438,7 +1435,7 @@ export function createHandlers(ctx) {
     data.magnitudeE = Math.hypot(data.field.x, data.field.y, data.field.z);
     data.magnitudeF = Math.hypot(data.force.x, data.force.y, data.force.z);
     data.potential = electricPotentialAt(data.charges, probe);
-    const radius = Number(data.radius || 2.4);
+    const radius = Number(data.radius || GAUSS_R_DEFAULT);
     data.qEnclosed = gaussEnclosedCharge(data.charges, radius, data.gaussShape || 'sphere', data.gaussSeed || 0);
     data.flux = gaussFlux(data.charges, radius, EPSILON_0, data.gaussShape || 'sphere', data.gaussSeed || 0);
     // Optional Gauss overlay on the field bench — only when the toggle is on.
@@ -1466,12 +1463,13 @@ export function createHandlers(ctx) {
     const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
     data.probeR = Math.hypot(Number(probe.x || 0), Number(probe.z || 0));
     const field = inducedEVectorAt(probe, data.R, data.dBdt);
+    const probeQC = chargeUiToCoulomb(probe.q0);
     data.field = field;
     data.magnitudeE = field.magnitude;
     data.force = {
-      x: field.x * Number(probe.q0 || 0),
+      x: field.x * probeQC,
       y: 0,
-      z: field.z * Number(probe.q0 || 0),
+      z: field.z * probeQC,
     };
     data.sense = field.sense;
     data.senseLabel = inducedESenseLabel(field.sense);
@@ -1489,8 +1487,8 @@ export function createHandlers(ctx) {
   function applyInducedProbeDrag(data, dx, dy) {
     if (!data?.dragStart || !data.probe) return false;
     // Screen drag maps to tabletop XZ (B is vertical).
-    data.probe.x = clamp(data.dragStart.x + dx * 0.02, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
-    data.probe.z = clamp(data.dragStart.z + dy * 0.02, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+    data.probe.x = clamp(data.dragStart.x + dx * 0.005, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+    data.probe.z = clamp(data.dragStart.z + dy * 0.005, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
     data.probe.y = 0;
     const r = Math.hypot(data.probe.x, data.probe.z);
     if (r > INDUCED_E_PROBE_R_MAX) {
@@ -1512,7 +1510,7 @@ export function createHandlers(ctx) {
     bStart: [-2.5, 2.5],
     bEnd: [-2.5, 2.5],
     dBdt: [-INDUCED_DBDT_MAX, INDUCED_DBDT_MAX],
-    probeR: [0.15, INDUCED_E_PROBE_R_MAX],
+    probeR: [INDUCED_E_PROBE_R_MIN, INDUCED_E_PROBE_R_MAX],
     q0: [0.2, 3],
   };
 
@@ -1960,9 +1958,9 @@ export function createHandlers(ctx) {
       data._dragReverseDistance = 0;
     } else {
       data._dragReverseDistance = Number(data._dragReverseDistance || 0) + Math.abs(delta);
-      // ~4 CSS px at the current 0.015 m/px mapping. Small tracking wobble is
+      // ~4 CSS px at the current 0.0015 m/px mapping. Small tracking wobble is
       // ignored; a clear reverse drag crosses this quickly and changes sense.
-      if (data._dragReverseDistance < 0.06) {
+      if (data._dragReverseDistance < 0.006) {
         data.currentSense = data.lingerSense || data.currentSense || 'none';
         data.currentLinger = 0.14;
         return false;
@@ -2098,120 +2096,6 @@ export function createHandlers(ctx) {
   }
 
 
-  function remainingHallParts(data) {
-    return HALL_PART_ROLES.filter((role) => !data.identified?.[role]);
-  }
-
-  /** Next equipment that must be identified (strict sequential order). */
-  function nextHallPart(data) {
-    return remainingHallParts(data)[0] || null;
-  }
-
-  function setIdentifyFeedback(ok, text) {
-    const data = state.data;
-    if (!data) return;
-    data.identifyFeedback = {
-      ok: !!ok,
-      text: String(text || ''),
-      at: Date.now(),
-    };
-  }
-
-  function refreshHallIdentifyVisuals(hoverRole) {
-    const data = state.data;
-    if (state.expId !== 'hall_effect' || currentStep()?.id !== 'identify') return;
-    const next = nextHallPart(data);
-    // Strict: outline only while the crosshair is on that part.
-    // Identified parts stay mode "done" so their hit volumes stop blocking
-    // rear apparatus (solenoid sits behind Helmholtz on the bench).
-    HALL_PART_ROLES.forEach((role) => {
-      let mode = 'off';
-      if (data.identified?.[role]) {
-        mode = 'done';
-      } else if (hoverRole === role) {
-        mode = role === next ? 'hover' : 'locked';
-      }
-      equipment.electro?.setHallPartState?.(role, mode);
-    });
-    data._hoverRole = hoverRole || null;
-    data.identifyNext = next;
-  }
-
-
-  function identifyHallRole(role) {
-    const data = state.data;
-    const name = HALL_PART_NAMES[role];
-    if (!name || !data.identified) return false;
-
-    // Already done earlier in the sequence
-    if (data.identified[role]) {
-      const next = nextHallPart(data);
-      const msg = next
-        ? `「${name}」已识别过。请按顺序瞄准：${HALL_PART_NAMES[next]}`
-        : `「${name}」已识别过。器材认识已完成`;
-      toast(msg);
-      setIdentifyFeedback(true, msg);
-      refreshHallIdentifyVisuals(role);
-      pushHud();
-      return true;
-    }
-
-    const expected = nextHallPart(data);
-    // Wrong order: this is a real apparatus, but not the current step target
-    if (expected && role !== expected) {
-      const expectedName = HALL_PART_NAMES[expected];
-      const expectedIdx = HALL_PART_ROLES.indexOf(expected) + 1;
-      const pickedIdx = HALL_PART_ROLES.indexOf(role) + 1;
-      const msg = `选错了：当前应按顺序识别第 ${expectedIdx} 件「${expectedName}」，你点的是第 ${pickedIdx} 件「${name}」`;
-      toast(msg);
-      setIdentifyFeedback(false, msg);
-      data._lastWrongRole = role;
-      refreshHallIdentifyVisuals(role);
-      pushHud();
-      return true;
-    }
-
-    data.identified[role] = true;
-    data._lastWrongRole = null;
-    const remaining = remainingHallParts(data);
-    if (!remaining.length) {
-      equipment.electro?.clearHallIdentifyVisuals?.();
-      const msg = `✓ 正确：已识别「${name}」。器材认识完成，请到内容屏选择测量对象`;
-      toast(msg);
-      setIdentifyFeedback(true, msg);
-      advanceStep();
-    } else {
-      const next = remaining[0];
-      const nextIdx = HALL_PART_ROLES.indexOf(next) + 1;
-      const msg = `✓ 正确：已识别「${name}」。下一项（${String(nextIdx).padStart(2, '0')}）：${HALL_PART_NAMES[next]}`;
-      toast(msg);
-      setIdentifyFeedback(true, msg);
-      refreshHallIdentifyVisuals(null);
-    }
-    pushHud();
-    return true;
-  }
-
-
-  function identifyHallWrong(role) {
-    const expected = nextHallPart(state.data);
-    const expectedName = expected ? HALL_PART_NAMES[expected] : '';
-    const expectedIdx = expected ? HALL_PART_ROLES.indexOf(expected) + 1 : 0;
-    let wrongLabel = '空白处或其他物体';
-    if (role === 'ui_action') wrongLabel = '界面按钮';
-    else if (role && role !== 'generic') wrongLabel = role;
-    const msg = expected
-      ? `选错了：「${wrongLabel}」不是目标。请按顺序瞄准第 ${expectedIdx} 件「${expectedName}」`
-      : '器材认识已完成';
-    toast(msg);
-    setIdentifyFeedback(false, msg);
-    state.data._lastWrongRole = role || 'generic';
-    refreshHallIdentifyVisuals(state.data._hoverRole);
-    pushHud();
-    return true;
-  }
-
-
   function applyVisualDefaults(expId) {
     if (!equipment.electro) return;
     // Visibility only; heavy field rebuild is a separate frame-budget job.
@@ -2224,10 +2108,6 @@ export function createHandlers(ctx) {
       kind = 'induced-e';
     } else if (expId === 'hall_effect') {
       equipment.electro.setMode?.('hall');
-      if (currentStep()?.id === 'identify') {
-        equipment.electro?.resetHallIdentifyVisuals?.();
-        refreshHallIdentifyVisuals(null);
-      }
       kind = 'hall';
     } else if (expId === 'hall_carrier_demo') {
       equipment.electro.setMode?.('hall-demo');
@@ -2257,10 +2137,8 @@ export function createHandlers(ctx) {
     state.data._awaitElectroSync = null;
     if (kind === 'faraday') syncFaraday(state.data, false);
     else if (kind === 'induced-e') syncInducedElectric(state.data, false);
-    else if (kind === 'hall') {
-      syncHall(state.data, false);
-      refreshHallIdentifyVisuals(null);
-    } else if (kind === 'hall-demo') syncHallDemo(state.data, false);
+    else if (kind === 'hall') syncHall(state.data, false);
+    else if (kind === 'hall-demo') syncHallDemo(state.data, false);
     else if (kind === 'gauss') syncGauss(state.data, false);
     else if (kind === 'electric-field') syncElectricField(state.data, false);
     else return false;
@@ -2290,7 +2168,7 @@ export function createHandlers(ctx) {
           );
         }
         if (key === 'probeR') {
-          const nextR = clamp(Number(data.probeR || 0) + delta, 0.15, INDUCED_E_PROBE_R_MAX);
+          const nextR = clamp(Number(data.probeR || 0) + delta, INDUCED_E_PROBE_R_MIN, INDUCED_E_PROBE_R_MAX);
           const angle = Math.atan2(Number(data.probe?.z || 0), Number(data.probe?.x || 1));
           data.probe.x = nextR * Math.cos(angle);
           data.probe.z = nextR * Math.sin(angle);
@@ -2327,7 +2205,7 @@ export function createHandlers(ctx) {
           data.omega = clamp(value, 0.15, INDUCED_E_OMEGA_MAX);
           if (state.stepIndex < 2) setStep('lenz');
         } else if (key === 'probeR') {
-          const nextR = clamp(value, 0.15, INDUCED_E_PROBE_R_MAX);
+          const nextR = clamp(value, INDUCED_E_PROBE_R_MIN, INDUCED_E_PROBE_R_MAX);
           const angle = Math.atan2(Number(data.probe?.z || 0), Number(data.probe?.x || 1));
           data.probe.x = nextR * Math.cos(angle);
           data.probe.z = nextR * Math.sin(angle);
@@ -2535,13 +2413,13 @@ export function createHandlers(ctx) {
               target = clamp(currentX - dx, FARADAY_X_MIN, FARADAY_X_MAX);
               if (Math.abs(target - currentX) < 1e-4) {
                 target = currentX <= FARADAY_X_MIN + 1e-4
-                  ? Math.min(FARADAY_X_MAX, currentX + Math.max(1.0, Math.abs(dx)))
-                  : Math.max(FARADAY_X_MIN, currentX - Math.max(1.0, Math.abs(dx)));
+                  ? Math.min(FARADAY_X_MAX, currentX + Math.max(0.10, Math.abs(dx)))
+                  : Math.max(FARADAY_X_MIN, currentX - Math.max(0.10, Math.abs(dx)));
               }
             } else {
               target = currentX > (FARADAY_X_MIN + FARADAY_X_MAX) * 0.5
-                ? Math.max(FARADAY_X_MIN, currentX - 2.0)
-                : Math.min(FARADAY_X_MAX, currentX + 2.0);
+                ? Math.max(FARADAY_X_MIN, currentX - 0.20)
+                : Math.min(FARADAY_X_MAX, currentX + 0.20);
             }
           }
           if (payload.to !== undefined) {
@@ -2585,21 +2463,21 @@ export function createHandlers(ctx) {
         if (!Number.isFinite(value)) return true;
         const onProbe = payload.target === 'probe';
         if (key === 'radius' || key === 'R') {
-          data.radius = clamp(value, 1.2, 4.2);
+          data.radius = clamp(value, GAUSS_R_MIN, GAUSS_R_MAX);
         } else if (onProbe && probe) {
           if (key === 'q0') {
             probe.q0 = Math.sign(probe.q0 || 1) * clamp(Math.abs(value), 0.2, 3);
           } else if (['x', 'y', 'z'].includes(key)) {
-            probe[key] = clamp(value, -5, 5);
+            probe[key] = clamp(value, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
           } else if (payload.axis) {
-            probe[payload.axis] = clamp(value, -5, 5);
+            probe[payload.axis] = clamp(value, -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
           }
         } else if (key === 'q' && charge) {
           charge.q = Math.sign(charge.q || 1) * clamp(Math.abs(value), 0.2, 3);
         } else if (['x', 'y', 'z'].includes(key) && charge) {
-          charge[key] = clamp(value, -4.5, 4.5);
+          charge[key] = clamp(value, -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
         } else if (payload.axis && charge) {
-          charge[payload.axis] = clamp(value, -4.5, 4.5);
+          charge[payload.axis] = clamp(value, -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
         }
         syncElectricField(data, payload.live !== true);
         return true;
@@ -2610,13 +2488,13 @@ export function createHandlers(ctx) {
         }
         const id = data.nextChargeId++;
         const angle = data.charges.length * 1.9;
-        const radius = 1.3;
+        const radius = 0.13;
         data.charges.push({
           id,
           q: Number(payload.sign) < 0 ? -1 : 1,
           x: Math.cos(angle) * radius,
-          y: 0.2 * (data.charges.length % 3 - 1),
-          z: Math.sin(angle) * radius,
+          y: Math.sin(angle) * radius,
+          z: 0,
         });
         data.selectedId = id;
       } else if (action === 'electric-delete') {
@@ -2629,7 +2507,7 @@ export function createHandlers(ctx) {
         charge.q = Math.sign(charge.q || 1) * Math.round(magnitude * 10) / 10;
       } else if (action === 'electric-move' && charge) {
         const axis = ['x', 'y', 'z'].includes(payload.axis) ? payload.axis : 'x';
-        charge[axis] = clamp(charge[axis] + Number(payload.delta || 0), -4.5, 4.5);
+        charge[axis] = clamp(charge[axis] + Number(payload.delta || 0), -ELECTRIC_CHARGE_BOUND, ELECTRIC_CHARGE_BOUND);
         if (data.dragStart && data.dragTarget === 'charge') {
           data.dragStart[axis] = charge[axis];
         }
@@ -2637,7 +2515,7 @@ export function createHandlers(ctx) {
         charge.x = 0; charge.y = 0; charge.z = 0;
       } else if (action === 'electric-probe-move') {
         const axis = ['x', 'y', 'z'].includes(payload.axis) ? payload.axis : 'x';
-        probe[axis] = clamp(probe[axis] + Number(payload.delta || 0), -5, 5);
+        probe[axis] = clamp(probe[axis] + Number(payload.delta || 0), -ELECTRIC_PROBE_BOUND, ELECTRIC_PROBE_BOUND);
         if (data.dragStart && data.dragTarget === 'probe') {
           data.dragStart[axis] = probe[axis];
         }
@@ -2797,19 +2675,10 @@ export function createHandlers(ctx) {
           }
         }
       }
-      if (state.stepIndex === 1) advanceStep();
+      if (state.stepIndex === 0) advanceStep();
       syncHall(data);
       toast(data.target === 'helmholtz' ? '测量对象：亥姆霍兹线圈' : '测量对象：长螺线管');
       return true;
-    }
-    if (action === 'hall-identify') {
-      // Assist button only confirms the current sequential target (does not skip).
-      const next = nextHallPart(data);
-      if (!next) {
-        toast('器材已全部识别完成');
-        return true;
-      }
-      return identifyHallRole(next);
     }
     if (action === 'hall-adjust' || action === 'hall-set') {
       const key = payload.key;
@@ -2858,7 +2727,7 @@ export function createHandlers(ctx) {
         }
         if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 5000) / 10) * 10;
       }
-      if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
+      if (state.stepIndex <= 1 && data.Im > 0 && data.Is > 0) setStep('scan');
       syncHall(data, payload.live !== true);
       return true;
     }
@@ -2899,7 +2768,7 @@ export function createHandlers(ctx) {
         hallK: HALL_K,
       });
       if (data.records.length > 60) data.records.shift();
-      if (data.records.length >= 3 && state.stepIndex < 4) setStep('compare');
+      if (data.records.length >= 3 && state.stepIndex < 3) setStep('compare');
       data.lastRecordedTime = Date.now();
       data.lastRecordedIndex = data.records.length - 1;
       syncHall(data);
@@ -3016,7 +2885,7 @@ export function createHandlers(ctx) {
     }
     if (action === 'hall-complete') {
       data.completed = true;
-      state.stepIndex = 5;
+      state.stepIndex = 4;
       syncHall(data);
       toast('霍尔效应测磁实验完成');
       return true;
@@ -3025,14 +2894,6 @@ export function createHandlers(ctx) {
   }
 
   function onFocus(target) {
-    if (state.expId === 'hall_effect' && currentStep()?.id === 'identify') {
-      let role = target?.userData?.role;
-      if (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero') {
-        role = 'hall_console';
-      }
-      refreshHallIdentifyVisuals(HALL_PART_NAMES[role] ? role : null);
-      return;
-    }
     if (state.expId === 'electric_field' && state.data) {
       const role = target?.userData?.role;
       if (role !== state.data._lastFocusRole) {
@@ -3192,23 +3053,10 @@ export function createHandlers(ctx) {
       toast('已抓住接线端：按住鼠标，将准星拖到另一个端口后松开');
       return true;
     }
-    if (step.id === 'identify') {
-      let effectiveRole = role;
-      if (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero') {
-        effectiveRole = 'hall_console';
-      }
-      // Any valid apparatus: sequential check inside identifyHallRole (wrong order = tip).
-      if (HALL_PART_NAMES[effectiveRole]) return identifyHallRole(effectiveRole);
-      if (effectiveRole === 'ui_action') {
-        const next = nextHallPart(state.data);
-        return next ? identifyHallRole(next) : true;
-      }
-      return identifyHallWrong(effectiveRole || 'generic');
-    }
     const data = state.data;
     if (role === 'hall_helmholtz') {
       data.target = 'helmholtz';
-      if (state.stepIndex === 1) advanceStep();
+      if (state.stepIndex === 0) advanceStep();
       armHallCameraDrag('rightCoilPos', data.rightCoilPos);
       syncHall(data);
       toast('已选择亥姆霍兹线圈；按住并转动镜头可移动右线圈');
@@ -3216,7 +3064,7 @@ export function createHandlers(ctx) {
     }
     if (role === 'hall_solenoid') {
       data.target = 'solenoid';
-      if (state.stepIndex === 1) advanceStep();
+      if (state.stepIndex === 0) advanceStep();
       armHallCameraDrag('turns', data.turns);
       syncHall(data);
       toast('已选择长螺线管；按住并转动镜头可调节匝数');
@@ -3243,11 +3091,7 @@ export function createHandlers(ctx) {
       toast('霍尔电压已调零');
       return true;
     }
-    // The console-wide hit box exists for apparatus recognition only.  Once
-    // recognition is complete it must not behave like the record button:
-    // otherwise clicking a readout, label, or any empty part of the physical
-    // instrument records a measurement.  Recording stays available through
-    // the explicit hologram/accessible UI action and the F shortcut.
+    // Measurement recording stays available through the explicit UI action and the F shortcut.
     if (role === 'ui_action') return onUiAction('hall-record');
     return false;
   }
@@ -3302,14 +3146,14 @@ export function createHandlers(ctx) {
     if (state.expId === 'induced_electric_field') {
       if (target?.userData?.role === 'induced_e_probe') {
         const sign = Number(delta) > 0 ? 1 : -1;
-        return onUiAction('induced-e-adjust', { key: 'probeR', delta: sign * 0.12 });
+        return onUiAction('induced-e-adjust', { key: 'probeR', delta: sign * 0.03 });
       }
       return false;
     }
     if (state.expId === 'faraday_induction') {
       if (target?.userData?.role === 'faraday_rod') {
         const sign = Number(delta) > 0 ? 1 : -1;
-        state.data.x = clamp(state.data.x + sign * 0.08, state.data.xMin, state.data.xMax);
+        state.data.x = clamp(state.data.x + sign * 0.008, state.data.xMin, state.data.xMax);
         syncFaraday(state.data);
         return true;
       }
@@ -3318,7 +3162,7 @@ export function createHandlers(ctx) {
     if (state.expId === 'electric_field') {
       // Wheel → world Z when unlocked (X/Y stay on drag).
       if (electricAxisLock(state.data).z) return false;
-      const step = delta > 0 ? -0.2 : 0.2;
+      const step = delta > 0 ? -0.02 : 0.02;
       const role = target?.userData?.role;
       // Prefer the live drag target, then aim role, then last selection.
       if (state.data.dragging && state.data.dragTarget === 'probe') {
@@ -3346,9 +3190,9 @@ export function createHandlers(ctx) {
     if (state.expId === 'gauss_theorem') {
       const chargeId = Number(target?.userData?.chargeId ?? state.data.selectedId);
       if (state.data.charges.some((charge) => charge.id === chargeId)) state.data.selectedId = chargeId;
-      return onUiAction('gauss-move', { axis: 'z', delta: delta > 0 ? -0.15 : 0.15 });
+      return onUiAction('gauss-move', { axis: 'z', delta: delta > 0 ? -0.015 : 0.015 });
     }
-    if (state.expId !== 'hall_effect' || currentStep()?.id === 'identify') return false;
+    if (state.expId !== 'hall_effect') return false;
 
     const scrollPick = resolveTableScrollPick(target, pick);
     const onDisplay = target?.userData?.type === 'holo_display'
@@ -3430,7 +3274,7 @@ export function createHandlers(ctx) {
           return;
         }
         const totalX = Number(equipment.electro?.mouseDrag?.movementX || 0) - Number(data.dragMouseX || 0);
-        const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+        const nextX = clamp(data.motionStart.x0 + totalX * 0.0015, data.xMin, data.xMax);
         if (Math.abs(nextX - data.x) > 1e-6) {
           const visualDt = Math.max(Number(dt) || 0, 1 / 60);
           const dx = nextX - data.x;
@@ -3546,7 +3390,6 @@ export function createHandlers(ctx) {
       syncHall(data);
       return;
     }
-    if (currentStep()?.id === 'identify') return;
     if (holding && data.hallDragArmed) {
       data.hallHoldAccum = (data.hallHoldAccum || 0) + dt;
       if (!data.hallDragging && data.hallHoldAccum > 0.08) data.hallDragging = true;
@@ -3590,7 +3433,7 @@ export function createHandlers(ctx) {
             const raw = clamp(hitCoilPos + (data.hallDragOffset || 0), 0.02, 0.155);
             data.rightCoilPos = Math.round(Math.round(raw / 0.005) * 0.005 * 1e4) / 1e4;
           }
-          if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
+          if (state.stepIndex <= 1 && data.Im > 0 && data.Is > 0) setStep('scan');
           syncHall(data, false);
           return;
         }
@@ -3616,7 +3459,7 @@ export function createHandlers(ctx) {
       if (kind === 'turns') data.turns = Math.round(clamp(start + deltaPx, 10, 5000) / 10) * 10;
       if (kind === 'Im') data.Im = clamp(start + deltaPx * 0.0025, 0, 1);
       if (kind === 'Is') data.Is = clamp(start + deltaPx * 0.000025, 0, 0.010);
-      if (kind && state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
+      if (kind && state.stepIndex <= 1 && data.Im > 0 && data.Is > 0) setStep('scan');
       syncHall(data, false);
       return;
     }
@@ -3755,7 +3598,7 @@ export function createHandlers(ctx) {
           const hit = new THREE.Vector3();
           if (_localRay.intersectPlane(plane, hit)) {
             const hitSimX = (hit.x - FARADAY_OFFSET_X) / FARADAY_SCALE;
-            state.data.dragOffsetSimX = clamp(state.data.x - hitSimX, -0.3, 0.3);
+            state.data.dragOffsetSimX = clamp(state.data.x - hitSimX, -0.03, 0.03);
           }
         }
         return ok;
@@ -3891,7 +3734,7 @@ export function createHandlers(ctx) {
           const totalX = Number.isFinite(context.totalX)
             ? Number(context.totalX) - Number(data.dragMouseX || 0)
             : Number(context.dx || 0);
-          const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+          const nextX = clamp(data.motionStart.x0 + totalX * 0.0015, data.xMin, data.xMax);
           if (Math.abs(nextX - data.x) > 1e-6) {
             const visualDt = Math.max(Number(context.dt) || 0, 1 / 60);
             const dx = nextX - data.x;
@@ -4124,7 +3967,6 @@ export function createHandlers(ctx) {
   function cleanup(_expId) {
     if (state.data) state.data._awaitElectroSync = null;
     disposeSimBackend();
-    equipment.electro?.clearHallIdentifyVisuals?.();
     equipment.electro?.cancelHallWirePreview?.();
     // Idle Hall showcase stays on the table; animators only run while electro is hot.
     try {

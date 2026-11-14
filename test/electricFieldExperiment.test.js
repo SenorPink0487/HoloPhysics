@@ -93,10 +93,11 @@ test('electric-field controller supports add/delete, limits, toggles and probe e
   for (let i = 0; i < 20; i += 1) handlers.onUiAction('electric-add', { sign: i % 2 ? -1 : 1 });
   assert.equal(state.data.charges.length, 12);
   assert.equal(state.data.selectedId, 12);
+  assert.ok(state.data.charges.every((c) => c.z === 0), 'all spawned charges should share the same height z = 0');
   handlers.onUiAction('electric-move', { axis: 'x', delta: 99 });
-  assert.equal(state.data.charges.at(-1).x, 4.5);
+  assert.equal(state.data.charges.at(-1).x, 0.45);
   handlers.onUiAction('electric-probe-move', { axis: 'z', delta: -99 });
-  assert.equal(state.data.probe.z, -5);
+  assert.equal(state.data.probe.z, -0.5);
   handlers.onUiAction('electric-toggle', { key: 'equipot' });
   assert.equal(state.data.showEquipot, 'flat');
   handlers.onUiAction('electric-toggle', { key: 'equipot' });
@@ -123,14 +124,14 @@ test('electric-field drag maps accumulated movement to X/Z and releases cleanly'
     dragged: true,
     dt: 1 / 60,
   });
-  assert.equal(state.data.charges[0].x, 2.5);
-  assert.equal(state.data.charges[0].z, 2.5);
+  close(state.data.charges[0].x, 0.25);
+  close(state.data.charges[0].z, 0.25);
 
   mouseDrag.movementX = 40;
   mouseDrag.movementY = 20;
   handlers.holdInteract(true, 0, 1 / 60, target);
-  assert.equal(state.data.charges[0].x, 1);
-  assert.equal(state.data.charges[0].z, -0.5);
+  close(state.data.charges[0].x, 0.1);
+  close(state.data.charges[0].z, -0.05);
 
   assert.equal(handlers.endManipulation(target), true);
   assert.equal(state.data.dragging, false);
@@ -150,16 +151,16 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dragged: true,
     dt: 1 / 60,
   });
-  assert.equal(state.data.charges[0].x, 2); // 0 + 80 * 0.025
+  close(state.data.charges[0].x, 0.2); // 0 + 80 * 0.0025
   assert.equal(state.data.charges[0].z, 0); // Z frozen
-  // vertical→Y with scale 0.025: (-120) * (-1) * 0.025 = 3.0 (mouse up moves towards +Z / screen left)
-  assert.equal(state.data.charges[0].y, 3);
+  // vertical→Y with scale 0.0025: (-120) * (-1) * 0.0025 = 0.3 (mouse up moves towards +Z / screen left)
+  close(state.data.charges[0].y, 0.3);
   handlers.endManipulation(target);
 
   // Lock X+Z: any drag drives Y (horizontal also works).
-  state.data.charges[0].x = 1;
+  state.data.charges[0].x = 0.1;
   state.data.charges[0].y = 0;
-  state.data.charges[0].z = 0.5;
+  state.data.charges[0].z = 0.05;
   handlers.onUiAction('electric-axis-lock', { axis: 'x', locked: true });
   handlers.onUiAction('electric-axis-lock', { axis: 'z', locked: true });
   handlers.onUiAction('electric-axis-lock', { axis: 'y', locked: false });
@@ -170,15 +171,15 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dragged: true,
     dt: 1 / 60,
   });
-  assert.equal(state.data.charges[0].x, 1);
-  assert.equal(state.data.charges[0].z, 0.5);
-  // |dx| >> |dy| → drive = dx = 100; oy = 100 * 0.025 = 2.5
-  close(state.data.charges[0].y, 2.5, 1e-9);
+  assert.equal(state.data.charges[0].x, 0.1);
+  assert.equal(state.data.charges[0].z, 0.05);
+  // |dx| >> |dy| → drive = dx = 100; oy = 100 * 0.0025 = 0.25
+  close(state.data.charges[0].y, 0.25, 1e-9);
   handlers.endManipulation(target);
 
   // Lock X+Y: only Z moves (vertical maps to Z).
-  state.data.charges[0].x = 1;
-  state.data.charges[0].y = 0.5;
+  state.data.charges[0].x = 0.1;
+  state.data.charges[0].y = 0.05;
   state.data.charges[0].z = 0;
   handlers.onUiAction('electric-axis-lock', { axis: 'x', locked: true });
   handlers.onUiAction('electric-axis-lock', { axis: 'y', locked: true });
@@ -190,15 +191,15 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dragged: true,
     dt: 1 / 60,
   });
-  assert.equal(state.data.charges[0].x, 1); // X frozen
-  assert.equal(state.data.charges[0].y, 0.5); // Y frozen
-  assert.equal(state.data.charges[0].z, -80 * 0.025); // -dy
+  assert.equal(state.data.charges[0].x, 0.1); // X frozen
+  assert.equal(state.data.charges[0].y, 0.05); // Y frozen
+  close(state.data.charges[0].z, -80 * 0.0025); // -dy
   handlers.endManipulation(target);
 
   // Shift+drag vertical → Y while Z remains free.
   state.data.charges[0].x = 0;
   state.data.charges[0].y = 0;
-  state.data.charges[0].z = 1;
+  state.data.charges[0].z = 0.1;
   handlers.onUiAction('electric-axis-lock', { axis: 'x', locked: false });
   handlers.onUiAction('electric-axis-lock', { axis: 'y', locked: false });
   handlers.onUiAction('electric-axis-lock', { axis: 'z', locked: false });
@@ -210,14 +211,14 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dragged: true,
     dt: 1 / 60,
   });
-  assert.equal(state.data.charges[0].z, 1); // Z unchanged under Shift
-  close(state.data.charges[0].y, 1.0, 1e-9); // 0 + (-40) * (-1) * 0.025 = 1.0 (mouse up moves towards +Z / screen left)
+  assert.equal(state.data.charges[0].z, 0.1); // Z unchanged under Shift
+  close(state.data.charges[0].y, 0.1, 1e-9); // 0 + (-40) * (-1) * 0.0025 = 0.1 (mouse up moves towards +Z / screen left)
   handlers.endManipulation(target);
 
   // Wheel adjusts Z when unlocked.
   state.data.charges[0].z = 0;
   assert.equal(handlers.onWheel(-100, target), true);
-  assert.equal(state.data.charges[0].z, 0.2);
+  close(state.data.charges[0].z, 0.02);
 
   // Z lock blocks wheel.
   handlers.onUiAction('electric-axis-lock', { axis: 'z', locked: true });
@@ -241,7 +242,7 @@ test('electric-field raycaster drag maps crosshair 3D ray directly to charge pos
 
   assert.equal(handlers.beginManipulation(target), true);
 
-  // Mock raycaster pointing down at (1.3, y=0, 2.6) in local space (scaled by 0.13: hit=(0.169, 0, 0.338))
+  // Mock raycaster pointing down at (0.13, y=0, 0.26) in local space (scaled by 1.3: hit=(0.169, 0, 0.338))
   const raycaster = {
     ray: {
       origin: new THREE.Vector3(0.169, 10, 0.338),
@@ -250,8 +251,8 @@ test('electric-field raycaster drag maps crosshair 3D ray directly to charge pos
   };
 
   assert.equal(handlers.updateManipulation(target, { raycaster }), true);
-  close(state.data.charges[0].x, 1.3, 1e-4);
-  close(state.data.charges[0].y, 2.6, 1e-4);
+  close(state.data.charges[0].x, 0.13, 1e-4);
+  close(state.data.charges[0].y, 0.26, 1e-4);
 
   handlers.endManipulation(target);
 });
@@ -456,7 +457,7 @@ test('equipotential plane supports multiple charges (dipole)', () => {
   assert.ok(plane, '2D equipotential plane mesh exists for dipole');
 });
 
-test('2D equipotential plane covers expanded domain including right side', () => {
+test('2D equipotential plane covers expanded symmetric domain centered on bench origin', () => {
   const equip = createElectricFieldEquipment();
   const charges = [
     { id: 1, q: 1.0, x: 0, y: 0, z: 0 },
@@ -474,10 +475,10 @@ test('2D equipotential plane covers expanded domain including right side', () =>
   assert.ok(equipotGroup, 'Equipotential group with 2D plane mesh should exist');
   const plane = equipotGroup.children.find((ch) => ch.isMesh && ch.geometry?.type === 'PlaneGeometry');
   assert.ok(plane, '2D equipotential plane mesh exists');
-  // width = 16 * 0.13 = 2.08, height = 8 * 0.13 = 1.04, center X = 4 * 0.13 = 0.52
+  // width = 16 * 0.13 = 2.08, height = 8 * 0.13 = 1.04, center X = 0
   assert.ok(Math.abs(plane.geometry.parameters.width - 16 * 0.13) < 1e-4);
   assert.ok(Math.abs(plane.geometry.parameters.height - 8 * 0.13) < 1e-4);
-  assert.ok(Math.abs(plane.position.x - 4 * 0.13) < 1e-4);
+  assert.ok(Math.abs(plane.position.x) < 1e-4);
 });test('electric field point charge and probe support 3D raycast direct drag', () => {
   const { state, handlers } = context();
   const root = createElectricFieldEquipment();
@@ -493,7 +494,7 @@ test('2D equipotential plane covers expanded domain including right side', () =>
   handlers.beginManipulation(chargeMesh, { time: 0 });
   assert.equal(state.data.dragging, true);
 
-  // Cast ray at X = 0.26 (sim x = 2.0), Y = 0, Z = 0.39 (sim y = 3.0)
+  // Cast ray at X = 0.26 (sim x = 0.20), Y = 0, Z = 0.39 (sim y = 0.30)
   const raycaster = new THREE.Raycaster();
   raycaster.ray.origin.set(0.26, 1.0, 0.39);
   raycaster.ray.direction.set(0, -1, 0);
@@ -502,8 +503,8 @@ test('2D equipotential plane covers expanded domain including right side', () =>
   assert.equal(updated, true);
   const targetCharge = state.data.charges.find((c) => c.id === 1);
   assert.ok(targetCharge);
-  close(targetCharge.x, 2.0, 0.05);
-  close(targetCharge.y, 3.0, 0.05);
+  close(targetCharge.x, 0.20, 0.005);
+  close(targetCharge.y, 0.30, 0.005);
 });
 
 test('equipotential toggle completes rebuild and stays idle without continuous frame thrashing', () => {
@@ -690,15 +691,15 @@ test('electric-field aim marker tracks charge ground projection and clears on re
   const aimMarker = eq.getObjectByName('aim-marker-ring');
   assert.ok(aimMarker, 'aim marker ring exists in equipment');
 
-  state.data.charges[0].x = 1.2;
-  state.data.charges[0].y = 2.4;
-  state.data.charges[0].z = 0.8;
+  state.data.charges[0].x = 0.12;
+  state.data.charges[0].y = 0.24;
+  state.data.charges[0].z = 0.08;
   state.data._aimVisible = true;
   eq.userData.update(state.data, 1 / 60);
 
   assert.equal(aimMarker.visible, true);
-  close(aimMarker.position.x, 1.2 * 0.13, 1e-6);
-  close(aimMarker.position.z, 2.4 * 0.13, 1e-6);
+  close(aimMarker.position.x, 0.12 * 1.3, 1e-6);
+  close(aimMarker.position.z, 0.24 * 1.3, 1e-6);
   close(aimMarker.position.y, 0.002, 1e-6);
 
   handlers.endManipulation(target);

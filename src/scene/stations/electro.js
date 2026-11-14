@@ -1,5 +1,3 @@
-import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
@@ -8,6 +6,13 @@ import { createHallDemoEquipment } from '../../experiments/hallDemoEquipment.js'
 import { createElectricFieldEquipment } from '../../experiments/electricFieldEquipment.js';
 import { createInducedElectricFieldEquipment } from '../../experiments/inducedElectricFieldEquipment.js';
 import {
+  FARADAY_OFFSET_X,
+  FARADAY_ROD_LENGTH,
+  FARADAY_SCALE,
+  FARADAY_X_END,
+  FARADAY_X_MAX,
+  FARADAY_X_MIN,
+  FARADAY_Y,
   gaussFluxParticleEmphasis,
   gaussFluxParticleRadiusNorm,
   gaussFluxParticleSpeed,
@@ -111,9 +116,6 @@ export function createStationEquipment(ctx) {
     startHallWirePreview: (...args) => call('startHallWirePreview', ...args),
     updateHallWirePreview: (...args) => call('updateHallWirePreview', ...args),
     cancelHallWirePreview: (...args) => call('cancelHallWirePreview', ...args),
-    setHallPartState: (...args) => call('setHallPartState', ...args),
-    clearHallIdentifyVisuals: (...args) => call('clearHallIdentifyVisuals', ...args),
-    resetHallIdentifyVisuals: (...args) => call('resetHallIdentifyVisuals', ...args),
     getCamera: () => ctx.camera,
     getRuntimeRoot: (mode) => full?.equipment?.getRuntimeRoot?.(mode) || full?.root || root,
     getRoot: () => full?.root || root,
@@ -1324,13 +1326,14 @@ function createFullStationEquipment(ctx) {
       root.name = 'faraday-induction-apparatus';
       root.visible = false;
       root.position.set(0, 0.0, 0.02);
-      const S = 0.12;
-      const OFFSET_X = -0.48;
-      const ROD_LEN = 4;
-      const X_END = 0.25;
-      const X_MAX = 8;
+      const S = FARADAY_SCALE;
+      const V = 0.12;
+      const OFFSET_X = FARADAY_OFFSET_X;
+      const ROD_LEN = FARADAY_ROD_LENGTH;
+      const X_END = FARADAY_X_END;
+      const X_MAX = FARADAY_X_MAX;
       const RAIL_Z = ROD_LEN / 2;
-      const Y = 0.08;
+      const Y = FARADAY_Y;
       const railMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.78, roughness: 0.28 });
       const endMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.72, roughness: 0.34 });
       const copperMat = new THREE.MeshStandardMaterial({
@@ -1342,16 +1345,16 @@ function createFullStationEquipment(ctx) {
       root.add(fieldGroup, circuitGroup, currentGroup);
 
       const makeRail = (z) => {
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * S, 0.08 * S, (X_MAX - 0.2) * S, 14), railMat);
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * V, 0.08 * V, (X_MAX - 0.02) * S, 14), railMat);
         mesh.rotation.z = Math.PI / 2;
-        mesh.position.set(OFFSET_X + (0.2 + (X_MAX - 0.2) / 2) * S, Y * S, z * S);
+        mesh.position.set(OFFSET_X + (0.02 + (X_MAX - 0.02) / 2) * S, Y * S, z * S);
         mesh.castShadow = true;
         mesh.raycast = () => {};
         return mesh;
       };
       circuitGroup.add(makeRail(RAIL_Z), makeRail(-RAIL_Z));
 
-      const end = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * S, 0.09 * S, ROD_LEN * S, 14), endMat);
+      const end = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * V, 0.09 * V, ROD_LEN * S, 14), endMat);
       end.rotation.x = Math.PI / 2;
       end.position.set(OFFSET_X + X_END * S, Y * S, 0);
       end.raycast = () => {};
@@ -1364,7 +1367,7 @@ function createFullStationEquipment(ctx) {
       areaMesh.raycast = () => {};
       circuitGroup.add(areaMesh);
 
-      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * S, 0.12 * S, ROD_LEN * S, 20), copperMat);
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * V, 0.12 * V, ROD_LEN * S, 20), copperMat);
       rod.rotation.x = Math.PI / 2;
       rod.castShadow = true;
       // Make the visible conductor itself grabable. The old interaction lived
@@ -1377,29 +1380,29 @@ function createFullStationEquipment(ctx) {
       // It remains narrow along the rail direction so neighbouring controls
       // are not stolen, but is deliberately wider/taller than the geometry.
       const hit = new THREE.Mesh(
-        new THREE.BoxGeometry(0.72 * S, 1.0 * S, ROD_LEN * S + 0.14),
+        new THREE.BoxGeometry(0.72 * V, 1.0 * V, ROD_LEN * S + 0.14),
         new THREE.MeshBasicMaterial({ visible: false }),
       );
       hit.userData.interactive = true;
       hit.userData.role = 'faraday_rod';
       circuitGroup.add(hit);
 
-      const fieldBounds = { x0: 0, x1: X_MAX + 1, z0: -RAIL_Z - 1, z1: RAIL_Z + 1, y0: -2.8, y1: 2.8 };
+      const fieldBounds = { x0: 0, x1: X_MAX + 0.1, z0: -RAIL_Z - 0.1, z1: RAIL_Z + 0.1, y0: -0.28, y1: 0.28 };
       // Single mid-plane. Fixed lattice indices; spacing = continuous f(|B|).
       // Arrows glide toward/away from center — no floor(nx) jumps. Length fixed forever.
       // Whole shaft+head stays ABOVE the rail/area plane so downward (B<0) tips are not buried in the table.
-      const FIELD_LEN = 1.02 * S;
-      const FIELD_HEAD_LEN = 0.32 * S;
-      const FIELD_HEAD_W = 0.18 * S;
-      const FIELD_SHAFT_R = 0.024 * S;
+      const FIELD_LEN = 1.02 * V;
+      const FIELD_HEAD_LEN = 0.32 * V;
+      const FIELD_HEAD_W = 0.18 * V;
+      const FIELD_SHAFT_R = 0.024 * V;
       // Vertical center of each arrow (local y). Origin shifts with sign so the body is centered here.
       const FIELD_MID_Y = Y * S + 0.008 + FIELD_LEN * 0.5;
-      const FIELD_SPACING_SPARSE = 1.8;
-      const FIELD_SPACING_DENSE = 0.85;
-      const FIELD_X0 = 0.6;
-      const FIELD_X1 = 7.8;
-      const FIELD_Z0 = -1.65;
-      const FIELD_Z1 = 1.65;
+      const FIELD_SPACING_SPARSE = 0.18;
+      const FIELD_SPACING_DENSE = 0.085;
+      const FIELD_X0 = 0.06;
+      const FIELD_X1 = 0.78;
+      const FIELD_Z0 = -0.165;
+      const FIELD_Z1 = 0.165;
       const FIELD_CX = (FIELD_X0 + FIELD_X1) * 0.5;
       const FIELD_CZ = (FIELD_Z0 + FIELD_Z1) * 0.5;
       // Lattice sized so densest spacing exactly fills the draw box.
@@ -1407,7 +1410,7 @@ function createFullStationEquipment(ctx) {
       const FIELD_NZ = Math.max(2, Math.round((FIELD_Z1 - FIELD_Z0) / FIELD_SPACING_DENSE) + 1);
       const FIELD_HALF_IX = (FIELD_NX - 1) * 0.5;
       const FIELD_HALF_IZ = (FIELD_NZ - 1) * 0.5;
-      const FIELD_EDGE_FADE = 0.45;
+      const FIELD_EDGE_FADE = 0.045;
       const FIELD_POOL = FIELD_NX * FIELD_NZ;
       let fieldShowKey = '';
       let fieldLastB = NaN;
@@ -1538,11 +1541,11 @@ function createFullStationEquipment(ctx) {
       // Induced-current flow: directional arrows along the closed circuit.
       // (Spheres were too small / slow / isotropic — hard to see direction.)
       // Fewer arrows → larger spacing along the closed circuit (reads clearer).
-      const FLOW_COUNT = 14;
-      const FLOW_ARROW_LEN = 0.58 * S;
-      const FLOW_HEAD_LEN = 0.22 * S;
-      const FLOW_HEAD_W = 0.14 * S;
-      const FLOW_SHAFT_R = 0.018 * S;
+      const FLOW_COUNT = 8;
+      const FLOW_ARROW_LEN = 0.58 * V;
+      const FLOW_HEAD_LEN = 0.22 * V;
+      const FLOW_HEAD_W = 0.14 * V;
+      const FLOW_SHAFT_R = 0.018 * V;
       const flowArrows = [];
       const flowArrowBatch = createInstancedArrowField({
         capacity: FLOW_COUNT,
@@ -1559,7 +1562,7 @@ function createFullStationEquipment(ctx) {
       currentGroup.add(flowArrowBatch.group);
       const progress = [];
       let flowSense = 'none';
-      let flowRodX = 4.5;
+      let flowRodX = 0.45;
       const _loopPos = new THREE.Vector3();
       const _loopDir = new THREE.Vector3();
       const _flowArrowPos = new THREE.Vector3();
@@ -1573,7 +1576,7 @@ function createFullStationEquipment(ctx) {
       ];
       // Closed loop path slightly above rails/rod so arrows read clearly.
       const loopSample = (u, rodX, outPos, outDir) => {
-        const y = (Y + 0.42) * S;
+        const y = Y * S + 0.42 * V;
         const z0 = -RAIL_Z * S;
         const z1 = RAIL_Z * S;
         _loopPts[0].set(OFFSET_X + X_END * S, y, z0);
@@ -1625,12 +1628,12 @@ function createFullStationEquipment(ctx) {
           lastPathRodX = -999;
           return;
         }
-        if (Math.abs(rodX - lastPathRodX) < 0.002 && color === lastPathColor) {
+        if (Math.abs(rodX - lastPathRodX) < 0.0002 && color === lastPathColor) {
           return;
         }
         lastPathRodX = rodX;
         lastPathColor = color;
-        const y = (Y + 0.38) * S;
+        const y = Y * S + 0.38 * V;
         const z0 = -RAIL_Z * S;
         const z1 = RAIL_Z * S;
         const arr = pathGeo.attributes.position.array;
@@ -1657,20 +1660,15 @@ function createFullStationEquipment(ctx) {
         pathMat.opacity = 0;
         lastPathRodX = -999;
       }
+      const flowColorForSense = (sense) => (sense === 'ccw' ? 0xa78bfa : 0xf472b6);
       function buildFlow(sense, rodX) {
         if (sense === 'none') {
           if (flowSense !== 'none') clearFlow();
           return;
         }
-        const senseChanged = sense !== flowSense;
         flowSense = sense;
         flowRodX = rodX;
-        const color = sense === 'ccw' ? 0xa78bfa : 0xf472b6;
-        if (senseChanged) {
-          for (let i = 0; i < FLOW_COUNT; i += 1) {
-            flowArrowBatch.setColor(i, color);
-          }
-        }
+        const color = flowColorForSense(sense);
         flowArrowBatch.setCount(FLOW_COUNT);
         updatePathLine(rodX, color, true);
       }
@@ -1747,23 +1745,23 @@ function createFullStationEquipment(ctx) {
       circuitGroup.add(rodXLabel.sprite, areaFluxLabel.sprite);
 
       root.userData.update = (data, dt = 0) => {
-        const x = THREE.MathUtils.clamp(Number(data?.x ?? 4.5), 1.2, 8);
+        const x = THREE.MathUtils.clamp(Number(data?.x ?? 0.45), FARADAY_X_MIN, FARADAY_X_MAX);
         const B = Number(data?.B || 0);
         const flux = Number(data?.flux ?? (B * Math.max(x - X_END, 0) * ROD_LEN));
         rod.position.set(OFFSET_X + x * S, Y * S, 0);
         hit.position.set(OFFSET_X + x * S, Y * S, 0);
-        const width = Math.max(x - X_END, 0.01);
+        const width = Math.max(x - X_END, 0.001);
         areaMesh.scale.set(width * S, S, 1);
         areaMesh.position.x = OFFSET_X + (X_END + width / 2) * S;
         areaMat.color.setHex(B >= 0 ? 0x60a5fa : 0xfb923c);
-        areaMat.opacity = 0.12 + Math.min(Math.abs(flux) * 0.012, 0.18);
+        areaMat.opacity = 0.12 + Math.min(Math.abs(flux) * 0.12, 0.18);
 
         // Update real-time 3D text labels (rod label directly above conductor, flux label floating at medium height)
-        rodXLabel.sprite.position.set(OFFSET_X + x * S, (Y + 0.45) * S, 0);
+        rodXLabel.sprite.position.set(OFFSET_X + x * S, Y * S + 0.45 * V, 0);
         rodXLabel.update(`x = ${x.toFixed(2)} \\mathrm{m}`, '#f472b6');
 
         const areaCenterX = X_END + width / 2;
-        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 1.35) * S, 0);
+        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, Y * S + 1.35 * V, 0);
         areaFluxLabel.update(`\\Phi_B = ${flux >= 0 ? '+' : ''}${flux.toFixed(2)} \\mathrm{Wb}`, B >= 0 ? '#38bdf8' : '#fb923c');
         if (dt === 0) {
           rodXLabel.flush();
@@ -1772,19 +1770,22 @@ function createFullStationEquipment(ctx) {
         rebuildField(Number(data?.B || 0), data?.showField !== false, dt === 0);
         buildFlow(data?.currentSense || 'none', x);
         if (flowSense !== 'none') {
-          const dirSign = flowSense === 'ccw' ? 1 : -1;
+          // _loopPts runs (-X,-Z) -> (+X,-Z) -> (+X,+Z) -> (-X,+Z), which is CW when viewed from +Y.
+          const dirSign = flowSense === 'cw' ? 1 : -1;
+          const flowColor = flowColorForSense(flowSense);
           // ~0.55–0.95 rev/s so motion reads immediately while dragging/sliding B.
           const speed = 0.55 * Math.max(0.85, Math.min(1.7, 1 + Math.abs(Number(data?.B || 0)) * 0.08));
           const step = dirSign * speed * Math.max(0, Number(dt || 0));
           for (let i = 0; i < FLOW_COUNT; i += 1) {
             progress[i] = ((progress[i] + step) % 1 + 1) % 1;
             loopSample(progress[i], flowRodX, _loopPos, _loopDir);
-            // Flow direction: reverse geometric tangent when current is CW.
+            // Reverse geometric CW tangent when induced current is CCW.
             if (dirSign < 0) _loopDir.negate();
             _flowArrowPos.copy(_loopPos).addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35);
             flowArrowBatch.setArrow(i, {
               origin: _flowArrowPos,
               direction: _loopDir,
+              color: flowColor,
               visible: true,
             });
           }
@@ -1797,93 +1798,23 @@ function createFullStationEquipment(ctx) {
     const faradayGroup = createFaradayEquipment();
     const inducedEGroup = createInducedElectricFieldEquipment();
 
-    // Physical recognition targets, matching the Faraday identify workflow.
-    function addHallRecognitionTarget(host, role, size, outlinePos = [0, 0, 0]) {
+    // Direct 3D interaction grab hit volumes (tight enough to avoid whole-bench grabs).
+    function addHallGrabTarget(host, role, title, size, pos = [0, 0, 0]) {
       const hit = new THREE.Mesh(
         new THREE.BoxGeometry(...size),
         new THREE.MeshBasicMaterial({ visible: false }),
       );
-      hit.position.set(...outlinePos);
+      hit.position.set(...pos);
       hit.userData.interactive = true;
       hit.userData.role = role;
-      const HALL_TITLES = {
-        hall_helmholtz: '亥姆霍兹线圈',
-        hall_solenoid: '长螺线管',
-        hall_probe: '霍尔探头与标尺',
-        hall_console: 'HCC-2 测磁仪',
-      };
-      if (HALL_TITLES[role]) hit.userData.title = HALL_TITLES[role];
+      if (title) hit.userData.title = title;
       host.add(hit);
-
-      const outline = makeSelectOutline(...size);
-      outline.position.set(...outlinePos);
-      host.add(outline);
-      return { outline, hit };
+      return hit;
     }
-    // Recognition hit volumes (tight enough to avoid whole-bench grabs).
-    // Probe covers most of the sliding ruler so it is easy to aim; during
-    // sequential identify, completed parts disable raycast and the curren
-    // target gets priority so the long ruler does not permanently shadow the solenoid.
-    const hallTargets = {
-      hall_helmholtz: addHallRecognitionTarget(hallHelm, 'hall_helmholtz', [0.42, 0.3, 0.3], [0.04, 0.02, 0]),
-      hall_solenoid: addHallRecognitionTarget(hallSolenoid, 'hall_solenoid', [0.95, 0.24, 0.22], [0, 0.0, 0]),
-      // Full usable ruler length (rod visual is ~1.4 m starting near x=0)
-      hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [1.32, 0.07, 0.08], [0.72, 0.02, 0]),
-      // Console spans 3 meters (x=-0.38 to +0.38), title plate, and adjustment knobs (z=0.32).
-      hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [1.10, 0.14, 0.34], [0, 0.10, 0.20]),
-    };
-    const hallRecognitionRings = {
-      hall_helmholtz: hallTargets.hall_helmholtz.outline,
-      hall_solenoid: hallTargets.hall_solenoid.outline,
-      hall_probe: hallTargets.hall_probe.outline,
-      hall_console: hallTargets.hall_console.outline,
-    };
-    const hallRecognitionHits = {
-      hall_helmholtz: hallTargets.hall_helmholtz.hit,
-      hall_solenoid: hallTargets.hall_solenoid.hit,
-      hall_probe: hallTargets.hall_probe.hit,
-      hall_console: hallTargets.hall_console.hit,
-    };
-    const probeHitMesh = hallTargets.hall_probe.hit;
-    const meshRaycast = THREE.Mesh.prototype.raycast;
-    function setHallRecognitionMode(role, mode) {
-      const ring = hallRecognitionRings[role];
-      const hit = hallRecognitionHits[role];
-      if (!ring) return;
-      // Already-identified parts stop blocking rays so rear apparatus (e.g. solenoid
-      // behind Helmholtz) can be selected from the front during sequential identify.
-      if (hit) {
-        if (mode === 'done') {
-          hit.raycast = () => {};
-          hit.userData.interactive = false;
-        } else {
-          hit.raycast = meshRaycast;
-          hit.userData.interactive = true;
-        }
-      }
-      if (mode === 'off') {
-        ring.visible = false;
-        ring.material.opacity = 0;
-        return;
-      }
-      if (mode === 'done') {
-        // No permanent outline on completed parts (also avoids visual clutter).
-        ring.visible = false;
-        ring.material.opacity = 0;
-        return;
-      }
-      ring.visible = true;
-      // hover=cyan (aimed correct target), locked=amber (aimed wrong order)
-      const colors = {
-        done: 0x4ade80,
-        current: 0x38bdf8,
-        hover: 0x67e8f9,
-        locked: 0xfbbf24,
-      };
-      ring.material.color.setHex(colors[mode] || 0x38bdf8);
-      ring.material.opacity = mode === 'locked' ? 0.7 : 1;
-      ring.scale.setScalar(mode === 'hover' ? 1.04 : 1.025);
-    }
+    addHallGrabTarget(hallHelm, 'hall_helmholtz', '亥姆霍兹线圈', [0.42, 0.3, 0.3], [0.04, 0.02, 0]);
+    addHallGrabTarget(hallSolenoid, 'hall_solenoid', '长螺线管', [0.95, 0.24, 0.22], [0, 0.0, 0]);
+    // Full usable ruler length (rod visual is ~1.4 m starting near x=0)
+    const probeHitMesh = addHallGrabTarget(hallProbe, 'hall_probe', '霍尔探头与标尺', [1.32, 0.07, 0.08], [0.72, 0.02, 0]);
     // The source carrier animation and the field explorations are separate
     // modes on this bench.  Mount them once before setMode() detaches the
     // inactive groups, otherwise opening the selector fails before a card can
@@ -2109,25 +2040,6 @@ function createFullStationEquipment(ctx) {
     g.userData.updateHallWirePreview = updateHallWirePreview;
     g.userData.cancelHallWirePreview = cancelHallWirePreview;
     g.userData.getHallTerminalTarget = getHallTerminalTarget;
-    g.userData.setHallPartState = setHallRecognitionMode;
-    g.userData.clearHallIdentifyVisuals = () => {
-      // After identify: keep probe/coil grab volumes, but disable the console-wide
-      // recognition box so it cannot swallow Im/Is/zero knobs and terminals.
-      Object.keys(hallRecognitionHits).forEach((role) => {
-        setHallRecognitionMode(role, 'off');
-        const hit = hallRecognitionHits[role];
-        if (hit && role === 'hall_console') {
-          hit.raycast = () => {};
-          hit.userData.interactive = false;
-        }
-      });
-    };
-    g.userData.resetHallIdentifyVisuals = () => {
-      // Fresh identify entry / experiment switch back: re-enable all recognition targets.
-      Object.keys(hallRecognitionHits).forEach((role) => {
-        setHallRecognitionMode(role, 'off');
-      });
-    };
     // helpers for experiment handlers / rail picking
     const _ray = new THREE.Raycaster();
     const _railOrigin = new THREE.Vector3();
@@ -2138,36 +2050,6 @@ function createFullStationEquipment(ctx) {
     const _w = new THREE.Vector3();
     const _u = new THREE.Vector3();
     const _v = new THREE.Vector3();
-    /**
-     * Identify selection ring only (outline around equipment — no full-body glow).
-     * mode: 'off' | 'hover' | 'done'
-     */
-    function makeSelectOutline(sx, sy, sz) {
-      const box = new THREE.BoxGeometry(sx, sy, sz);
-      const edges = new THREE.EdgesGeometry(box);
-      const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
-      box.dispose();
-      edges.dispose();
-      const mat = new LineMaterial({
-        color: 0x22d3ee,
-        transparent: true,
-        opacity: 0,
-        linewidth: 4,
-        worldUnits: false,
-        resolution: new THREE.Vector2(
-          typeof window !== 'undefined' ? window.innerWidth : 1280,
-          typeof window !== 'undefined' ? window.innerHeight : 720,
-        ),
-        depthTest: true,
-        toneMapped: false,
-      });
-      const outline = new LineSegments2(geometry, mat);
-      outline.computeLineDistances();
-      outline.visible = false;
-      outline.userData.isSelectRing = true;
-      outline.raycast = () => {}; // never block picks
-      return outline;
-    }
 
     g.userData.getHallProbePos = (cam, target = 'helmholtz') => {
       if (!cam) return null;
@@ -2202,10 +2084,11 @@ function createFullStationEquipment(ctx) {
 
   const root = new THREE.Group();
   root.name = 'electro-station';
-  // Slightly toward table center / back of sitting edge so multi-row desk
-  // sliders on z≈3.13 don't sit under the Faraday / Hall apparatus.
+  // Position the electro showcase apparatus slightly forward (+Z) and right
+  // of desk center (+X) so it sits comfortably in the middle-right of the
+  // tabletop, clear of the left selector terminal and front-back desk edges.
   const hallBench = makeHallSetup();
-  hallBench.position.set(-4.15, 0.905, 2.42);
+  hallBench.position.set(-3.95, 0.905, 2.66);
   root.add(hallBench);
 
   const equipment = {
@@ -2229,9 +2112,6 @@ function createFullStationEquipment(ctx) {
     startHallWirePreview: (portId) => hallBench.userData.startHallWirePreview?.(portId),
     updateHallWirePreview: (fromPortId, aimSource, hoverPortId) => hallBench.userData.updateHallWirePreview?.(fromPortId, aimSource, hoverPortId),
     cancelHallWirePreview: () => hallBench.userData.cancelHallWirePreview?.(),
-    setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
-    clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),
-    resetHallIdentifyVisuals: () => hallBench.userData.resetHallIdentifyVisuals?.(),
     getCamera: () => camera,
     getRoot: () => root,
     root,

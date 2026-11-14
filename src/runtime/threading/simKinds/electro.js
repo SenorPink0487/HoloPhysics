@@ -10,7 +10,7 @@ const EPSILON_0 = 1 / (4 * Math.PI * K_COULOMB);
 const COULOMB_SCALE = K_COULOMB * CHARGE_UI_TO_C;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
-function fieldAt(charges, px, py, pz, minR = 0.04) {
+function fieldAt(charges, px, py, pz, minR = 0.004) {
   let ex = 0;
   let ey = 0;
   let ez = 0;
@@ -99,18 +99,18 @@ export function createElectricFieldLinesKind(initial = {}) {
       const dirs = sourceDirs(share);
       for (let d = 0; d < dirs.length; d += 1) {
         const direction = dirs[d];
-        let px = charge.x + direction.x * 0.26;
-        let py = charge.y + direction.y * 0.26;
-        let pz = charge.z + direction.z * 0.26;
+        let px = charge.x + direction.x * 0.026;
+        let py = charge.y + direction.y * 0.026;
+        let pz = charge.z + direction.z * 0.026;
         const pts = [px, py, pz];
         for (let step = 0; step < 90; step += 1) {
           const f = fieldAt(charges, px, py, pz);
           const mag = Math.hypot(f.x, f.y, f.z);
           if (mag < 1e-5) break;
-          px += (f.x * sign * 0.09) / mag;
-          py += (f.y * sign * 0.09) / mag;
-          pz += (f.z * sign * 0.09) / mag;
-          if (Math.hypot(px, py, pz) > 9 || nearAnyCharge(charges, px, py, pz, 0.2)) break;
+          px += (f.x * sign * 0.009) / mag;
+          py += (f.y * sign * 0.009) / mag;
+          pz += (f.z * sign * 0.009) / mag;
+          if (Math.hypot(px, py, pz) > 0.9 || nearAnyCharge(charges, px, py, pz, 0.02)) break;
           pts.push(px, py, pz);
         }
         if (pts.length >= 6) lines.push(pts);
@@ -210,7 +210,7 @@ export function createGaussMetricsKind(initial = {}) {
     y: Number(c.y) || 0,
     z: Number(c.z) || 0,
   }));
-  let radius = Number(initial.radius) || 2.4;
+  let radius = Number(initial.radius) || 0.24;
   let simTime = 0;
   let generation = 0;
 
@@ -230,7 +230,7 @@ export function createGaussMetricsKind(initial = {}) {
     if (charges.length === 1) {
       const c = charges[0];
       const dist = Math.hypot(c.x, c.y, c.z);
-      if (dist < 0.12 && dist < r && Math.abs(c.q) > 0.01) {
+      if (dist < 0.012 && dist < r && Math.abs(c.q) > 0.01) {
         return (K_COULOMB * Math.abs(c.q * CHARGE_UI_TO_C)) / (r * r);
       }
     }
@@ -269,7 +269,7 @@ export function createGaussMetricsKind(initial = {}) {
       }
       if (op === 'reset') {
         charges = [];
-        radius = 2.4;
+        radius = 0.24;
         simTime = 0;
         return true;
       }

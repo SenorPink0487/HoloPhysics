@@ -62,9 +62,9 @@ test('Faraday apparatus is registered on the electromagnetism station', () => {
 });
 
 test('Faraday flux uses B times the sliding-rod area', () => {
-  assert.equal(faradayArea(4.5), (4.5 - 0.25) * FARADAY_ROD_LENGTH);
-  assert.equal(faradayFlux(-1, 4.5), -17);
-  assert.equal(faradayFlux(0, 4.5), 0);
+  close(faradayArea(0.45), (0.45 - 0.025) * FARADAY_ROD_LENGTH);
+  close(faradayFlux(-1, 0.45), -0.17);
+  assert.equal(faradayFlux(0, 0.45), 0);
 });
 
 test('Faraday emf and Lenz direction obey sign and limiting cases', () => {
@@ -122,8 +122,8 @@ test('Faraday animates B from current to target and records induction', () => {
 
 test('Faraday animates x from current to target and records motion', () => {
   const { state, handlers } = faradayContext();
-  handlers.onUiAction('faraday-set', { key: 'x', value: 3 });
-  handlers.onUiAction('faraday-set', { key: 'targetX', value: 7 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.3 });
+  handlers.onUiAction('faraday-set', { key: 'targetX', value: 0.7 });
   handlers.onUiAction('faraday-set', { key: 'animDuration', value: 0.8 });
   handlers.onUiAction('faraday-channel', { channel: 'x' });
   handlers.onUiAction('faraday-play', {});
@@ -132,10 +132,10 @@ test('Faraday animates x from current to target and records motion', () => {
 
   for (let i = 0; i < 30; i += 1) handlers.update(0, 0.05);
   assert.equal(state.data.pendingAnim, null);
-  close(state.data.x, 7, 1e-5);
+  close(state.data.x, 0.7, 1e-5);
   assert.ok(state.data.lastMotion);
-  close(state.data.lastMotion.x0, 3, 1e-5);
-  close(state.data.lastMotion.x1, 7, 1e-5);
+  close(state.data.lastMotion.x0, 0.3, 1e-5);
+  close(state.data.lastMotion.x1, 0.7, 1e-5);
 });
 
 test('Faraday reverse B is a dynamic change to −B', () => {
@@ -154,12 +154,12 @@ test('Faraday reverse x in motional mode keeps channel x and reverses motion', (
   handlers.onUiAction('faraday-channel', { channel: 'x' });
   assert.equal(state.data.animChannel, 'x');
 
-  // Initial x = 4.5, targetX = 6.5. Reverse should target 4.5 - (6.5 - 4.5) = 2.5
+  // Initial x = 0.45, targetX = 0.65. Reverse should target 0.45 - (0.65 - 0.45) = 0.25
   handlers.onUiAction('faraday-reverse', {});
   assert.ok(state.data.pendingAnim);
   assert.equal(state.data.pendingAnim.channel, 'x');
   assert.equal(state.data.animChannel, 'x', 'channel must remain x and NOT switch to B');
-  close(state.data.pendingAnim.to, 2.5, 1e-5);
+  close(state.data.pendingAnim.to, 0.25, 1e-5);
 
   // Verify desk slider config keeps motional channel
   const cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
@@ -169,57 +169,57 @@ test('Faraday reverse x in motional mode keeps channel x and reverses motion', (
   // Finish the animation
   for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
   assert.equal(state.data.pendingAnim, null);
-  close(state.data.x, 2.5, 1e-5);
+  close(state.data.x, 0.25, 1e-5);
   assert.ok(state.data.lastMotion);
   assert.equal(state.data.animChannel, 'x');
 
-  // Reverse again from 2.5 back towards 4.5
+  // Reverse again from 0.25 back towards 0.45
   handlers.onUiAction('faraday-reverse', {});
   assert.ok(state.data.pendingAnim);
   assert.equal(state.data.pendingAnim.channel, 'x');
   assert.equal(state.data.animChannel, 'x');
-  close(state.data.pendingAnim.to, 4.5, 1e-5);
+  close(state.data.pendingAnim.to, 0.45, 1e-5);
 
   for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
   assert.equal(state.data.pendingAnim, null);
-  close(state.data.x, 4.5, 1e-5);
+  close(state.data.x, 0.45, 1e-5);
   assert.equal(state.data.animChannel, 'x');
 });
 
 test('Faraday reverse x after auto play smoothly reverses back to start position', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-channel', { channel: 'x' });
-  handlers.onUiAction('faraday-set', { key: 'x', value: 3 });
-  handlers.onUiAction('faraday-set', { key: 'targetX', value: 6 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.3 });
+  handlers.onUiAction('faraday-set', { key: 'targetX', value: 0.6 });
   handlers.onUiAction('faraday-play', {});
 
   for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
-  close(state.data.x, 6, 1e-5);
+  close(state.data.x, 0.6, 1e-5);
 
-  // In motional mode, clicking reverse should animate from 6 back to 3
+  // In motional mode, clicking reverse should animate from 0.6 back to 0.3
   handlers.onUiAction('faraday-reverse', {});
   assert.ok(state.data.pendingAnim);
   assert.equal(state.data.pendingAnim.channel, 'x');
   assert.equal(state.data.animChannel, 'x');
-  close(state.data.pendingAnim.to, 3, 1e-5);
+  close(state.data.pendingAnim.to, 0.3, 1e-5);
 
   for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
-  close(state.data.x, 3, 1e-5);
+  close(state.data.x, 0.3, 1e-5);
   assert.equal(state.data.animChannel, 'x');
 });
 
 test('live faraday-set x drag arms motional current while x changes', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
-  handlers.onUiAction('faraday-set', { key: 'x', value: 3 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.3 });
   // Live desk/content drag: begin motion measurement + update x.
   assert.equal(
-    handlers.onUiAction('faraday-set', { key: 'x', value: 5, live: true }),
+    handlers.onUiAction('faraday-set', { key: 'x', value: 0.5, live: true }),
     true,
   );
   assert.equal(state.data.dragging, true);
   assert.ok(state.data.motionStart);
-  close(state.data.x, 5);
+  close(state.data.x, 0.5);
   // One frame of velocity → non-zero emf / Lenz sense.
   handlers.update(0, 0.05);
   assert.notEqual(state.data.currentSense, 'none');
@@ -228,8 +228,8 @@ test('live faraday-set x drag arms motional current while x changes', () => {
   handlers.endManipulation?.(null, { time: state.data._time });
   assert.equal(state.data.dragging, false);
   assert.ok(state.data.lastMotion);
-  close(state.data.lastMotion.x0, 3, 1e-5);
-  close(state.data.lastMotion.x1, 5, 1e-5);
+  close(state.data.lastMotion.x0, 0.3, 1e-5);
+  close(state.data.lastMotion.x1, 0.5, 1e-5);
 });
 
 test('AR rod drag synchronizes induction direction before the next fixed tick', () => {
@@ -261,7 +261,7 @@ test('AR rod drag synchronizes induction direction before the next fixed tick', 
 test('live faraday-set B drag arms induction current while B changes', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
-  handlers.onUiAction('faraday-set', { key: 'x', value: 4.5 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.45 });
   assert.equal(
     handlers.onUiAction('faraday-set', { key: 'B', value: 1.5, live: true }),
     true,
@@ -278,11 +278,11 @@ test('live faraday-set B drag arms induction current while B changes', () => {
 test('non-live faraday-set B/x does not leave a stuck gesture', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: 0.8 });
-  handlers.onUiAction('faraday-set', { key: 'x', value: 3.2 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.32 });
   assert.equal(state.data.dragging, false);
   assert.equal(state.data.sliderDragging, false);
   close(state.data.B, 0.8);
-  close(state.data.x, 3.2);
+  close(state.data.x, 0.32);
   // Preset-then-play still works after discrete setup sets.
   handlers.onUiAction('faraday-set', { key: 'targetB', value: -0.8 });
   handlers.onUiAction('faraday-play', {});
@@ -317,7 +317,7 @@ test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 t
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
   const rod = { userData: { role: 'faraday_rod' } };
 
-  // Ray pointing at x=4.5 (local X = -0.48 + 4.5 * 0.12 = 0.06)
+  // Ray pointing at x=0.45 (local X = -0.48 + 0.45 * 1.2 = 0.06)
   const initialRay = {
     ray: {
       origin: new THREE.Vector3(0.06, 5, 0),
@@ -327,7 +327,7 @@ test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 t
   assert.equal(handlers.beginManipulation(rod, { raycaster: initialRay }), true);
   assert.equal(state.data.dragging, true);
 
-  // Drag ray to target x=6.0 (local X = -0.48 + 6.0 * 0.12 = 0.24)
+  // Drag ray to target x=0.60 (local X = -0.48 + 0.60 * 1.2 = 0.24)
   const moveRay = {
     ray: {
       origin: new THREE.Vector3(0.24, 5, 0),
@@ -335,11 +335,11 @@ test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 t
     },
   };
   assert.equal(handlers.updateManipulation(rod, { raycaster: moveRay, dt: 1 / 60 }), true);
-  close(state.data.x, 6.0, 1e-4);
+  close(state.data.x, 0.60, 1e-4);
   assert.notEqual(state.data.currentSense, 'none');
   assert.ok(Math.abs(state.data.liveEmf) > 1e-6);
 
-  // Drag beyond xMax (local X = 2.0 -> clamped to 8.0)
+  // Drag beyond xMax (local X = 2.0 -> clamped to 0.80)
   const outRay = {
     ray: {
       origin: new THREE.Vector3(2.0, 5, 0),
@@ -347,7 +347,7 @@ test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 t
     },
   };
   assert.equal(handlers.updateManipulation(rod, { raycaster: outRay, dt: 1 / 60 }), true);
-  close(state.data.x, 8.0, 1e-4);
+  close(state.data.x, 0.80, 1e-4);
 
   handlers.endManipulation(rod);
   assert.equal(state.data.dragging, false);
@@ -402,7 +402,7 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
     station.equipment.setMode('faraday');
 
     // Initial update with B = -1 (downwards orange arrows)
-    station.equipment.updateFaraday({ B: -1, x: 4.5, showField: true }, 0);
+    station.equipment.updateFaraday({ B: -1, x: 0.45, showField: true }, 0);
     const faradayGroup = station.root.getObjectByName('faraday-induction-apparatus');
     assert.ok(faradayGroup, 'Faraday apparatus group must exist in electro station');
 
@@ -417,7 +417,7 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
     }
 
     // Change to B = +1.5 (upwards cyan arrows)
-    station.equipment.updateFaraday({ B: 1.5, x: 4.5, showField: true }, 0);
+    station.equipment.updateFaraday({ B: 1.5, x: 0.45, showField: true }, 0);
     if (fieldArrowGroup) {
       const shaft = fieldArrowGroup.getObjectByName('faraday-field-arrows-shaft');
       assert.ok(shaft && (shaft.count ?? shaft.instanceMatrix?.count ?? 0) >= 10, 'Must have active visible B arrows for B = 1.5');
@@ -445,7 +445,7 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
       };
 
       for (const B of [-1, -0.5, -0.01, 0.01, 0.03, 0.5, 1.5]) {
-        station.equipment.updateFaraday({ B, x: 6.62, showField: true }, 1 / 60);
+        station.equipment.updateFaraday({ B, x: 0.662, showField: true }, 1 / 60);
       }
       const upArrows = collectActiveArrows();
       assert.ok(upArrows.length >= 10, 'B = +1.5 after crossing 0 must render visible arrows');
@@ -456,7 +456,7 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
       }
 
       for (const B of [0.5, 0.01, -0.01, -0.03, -0.5, -1]) {
-        station.equipment.updateFaraday({ B, x: 6.62, showField: true }, 1 / 60);
+        station.equipment.updateFaraday({ B, x: 0.662, showField: true }, 1 / 60);
       }
       const downArrows = collectActiveArrows();
       assert.ok(downArrows.length >= 10, 'B = -1 after crossing 0 must render visible arrows');
@@ -467,9 +467,9 @@ test('Faraday 3D magnetic field arrows update dynamically with sign and strength
       }
 
       // Crossing below 0.02 from 0.03 must hide arrows immediately
-      station.equipment.updateFaraday({ B: 0.03, x: 6.62, showField: true }, 1 / 60);
+      station.equipment.updateFaraday({ B: 0.03, x: 0.662, showField: true }, 1 / 60);
       assert.ok(head.count > 0);
-      station.equipment.updateFaraday({ B: 0.01, x: 6.62, showField: true }, 1 / 60);
+      station.equipment.updateFaraday({ B: 0.01, x: 0.662, showField: true }, 1 / 60);
       assert.equal(head.count, 0, 'Dropping from 0.03 into |B| < 0.02 must hide arrows immediately');
     }
   } finally {
@@ -566,5 +566,86 @@ test('Faraday floating display integrates all desk controls and resolves exact s
     hud: { running: true, experiment },
   });
   assert.ok(layoutDisplay.width >= 1152 && layoutDisplay.height >= 780);
+});
+
+test('Faraday 3D induced-current arrows point CW/CCW from +y view for motional and inductive EMF', () => {
+  const origDoc = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => {
+      if (tag === 'canvas') {
+        return {
+          width: 512,
+          height: 256,
+          getContext: () => ({
+            clearRect: () => {},
+            fillRect: () => {},
+            strokeRect: () => {},
+            fillText: () => {},
+            strokeText: () => {},
+            measureText: () => ({ width: 10 }),
+            createLinearGradient: () => ({ addColorStop: () => {} }),
+            createRadialGradient: () => ({ addColorStop: () => {} }),
+            beginPath: () => {},
+            closePath: () => {},
+            moveTo: () => {},
+            lineTo: () => {},
+            arc: () => {},
+            arcTo: () => {},
+            ellipse: () => {},
+            fill: () => {},
+            stroke: () => {},
+            save: () => {},
+            restore: () => {},
+            setLineDash: () => {},
+          }),
+        };
+      }
+      return {};
+    },
+  };
+
+  try {
+    const station = createElectroEquipment({
+      THREE,
+      renderer: { compileAsync: async () => {} },
+      camera: new THREE.PerspectiveCamera(),
+      scene: new THREE.Scene(),
+    });
+    station.equipment.setMode('faraday');
+    const faradayGroup = station.root.getObjectByName('faraday-induction-apparatus');
+    const flowHead = faradayGroup.getObjectByName('induced-current-arrows-head');
+    assert.ok(flowHead, 'induced-current-arrows-head must exist');
+
+    const x = 0.45;
+    const loopCenterX = -0.48 + ((0.025 + x) * 0.5) * 1.2;
+    const mat = new THREE.Matrix4();
+    const col = new THREE.Color();
+    const checkDirection = (sense, expectedSign, expectedHex) => {
+      station.equipment.updateFaraday({ B: -1, x, showField: true, currentSense: sense }, 1 / 60);
+      assert.ok(flowHead.count >= 8, `Expected visible flow arrows for ${sense}`);
+      for (let i = 0; i < flowHead.count; i += 1) {
+        flowHead.getMatrixAt(i, mat);
+        flowHead.getColorAt(i, col);
+        assert.equal(col.getHexString(), expectedHex, `Sense ${sense}: arrow ${i} color must not fall back to white`);
+        const e = mat.elements;
+        const rx = e[12] - loopCenterX;
+        const rz = e[14];
+        const dirX = e[4];
+        const dirZ = e[6];
+        // Looking from +y: (r x dir).y = rz * dirX - rx * dirZ is < 0 for CW and > 0 for CCW.
+        const crossY = rz * dirX - rx * dirZ;
+        assert.ok(
+          crossY * expectedSign > 0.01,
+          `Sense ${sense}: arrow ${i} at (${rx.toFixed(3)}, ${rz.toFixed(3)}) dir (${dirX.toFixed(2)}, ${dirZ.toFixed(2)}) has wrong chirality crossY=${crossY.toFixed(4)}`,
+        );
+      }
+    };
+
+    checkDirection('cw', -1, 'f472b6');
+    checkDirection('ccw', 1, 'a78bfa');
+  } finally {
+    if (origDoc === undefined) delete globalThis.document;
+    else globalThis.document = origDoc;
+  }
 });
 

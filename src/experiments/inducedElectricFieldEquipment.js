@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 import {
+  INDUCED_E_DISK_RADIUS,
+  INDUCED_E_R_MAX,
+  INDUCED_E_R_MIN,
+  INDUCED_E_WORLD_SCALE,
   inducedEDirection,
   inducedEMagnitude,
   inducedESense,
 } from './electro.js';
 import { formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 
-const WORLD_PER_SOURCE = 0.13;
+const WORLD_PER_SOURCE = INDUCED_E_WORLD_SCALE;
+const VISUAL_UNIT = 0.13;
 export const MAX_E_RINGS = 28;
 const E_MARKERS_PER_RING = 8;
 
@@ -23,25 +28,25 @@ const E_MARKERS_PER_RING = 8;
  *    - 最靠近分割圈的那根外圈场线到分割圈的间距，与最靠近分割圈的那根内圈场线到分割圈的间距基本一致。
  */
 export const FIXED_INNER_RADII = Object.freeze([
-  0.38,
-  0.83,  // Δ = 0.45
-  1.19,  // Δ = 0.36
-  1.48,  // Δ = 0.29
-  1.72,  // Δ = 0.24
-  1.92,  // Δ = 0.20
-  2.10,  // Δ = 0.18
-  2.26,  // Δ = 0.16
-  2.41,  // Δ = 0.15
-  2.55,  // Δ = 0.14
-  2.68,  // Δ = 0.13
-  2.80,  // Δ = 0.12
-  2.91,  // Δ = 0.11
-  3.02,  // Δ = 0.11
+  0.100,
+  0.220, // Δ = 0.120
+  0.316, // Δ = 0.096
+  0.394, // Δ = 0.078
+  0.458, // Δ = 0.064
+  0.511, // Δ = 0.053
+  0.558, // Δ = 0.047
+  0.600, // Δ = 0.042
+  0.639, // Δ = 0.039
+  0.675, // Δ = 0.036
+  0.709, // Δ = 0.034
+  0.741, // Δ = 0.032
+  0.771, // Δ = 0.030
+  0.799, // Δ = 0.028
 ]);
 
 export const EXTENDED_INNER_RADII = Object.freeze([
   ...FIXED_INNER_RADII,
-  3.128, 3.234, 3.338, 3.440, 3.540,
+  0.826, 0.852, 0.877, 0.901, 0.924, 0.946,
 ]);
 
 /**
@@ -64,15 +69,15 @@ export function inducedFieldSpacingScale(rateD) {
   return Math.pow(2.0 / clampedLower, 0.35);
 }
 
-export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
+export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 1.18) {
   const absRate = Math.abs(Number(rateD || 0));
   if (absRate < 0.02) return [];
 
-  const safeR = Math.max(0.6, Math.min(3.2, Number(regionR || 2)));
+  const safeR = Math.max(INDUCED_E_R_MIN, Math.min(INDUCED_E_R_MAX + 0.05, Number(regionR || 0.50)));
   const scale = inducedFieldSpacingScale(absRate);
   if (scale <= 0) return [];
 
-  const margin = 0.06 * scale;
+  const margin = 0.016 * scale;
 
   // 1. 内圈 (r < R)：间距向外严格递减（E ∝ r，越靠外场强越强，场线越密）；
   //    受上限保护约束，相邻圈之间留有充足净距，避免切向箭头与线条重叠成团。
@@ -100,7 +105,7 @@ export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
   const innerStep = inRadii.length > 1
     ? inRadii[inRadii.length - 1] - inRadii[inRadii.length - 2]
     : safeR - lastIn;
-  const innerFirstGap = Math.max(0.06 * scale, safeR - lastIn);
+  const innerFirstGap = Math.max(0.016 * scale, safeR - lastIn);
 
   const outRadii = [];
   let currOut = safeR + innerFirstGap;
@@ -117,11 +122,11 @@ export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
 }
 
 /** Source-space R max (matches desk slider R max). Lattice covers densest fill of this disk. */
-const B_R_MAX = 3.0;
-/** Faraday-style lattice spacing in source units: sparse ↔ dense vs |B|. */
-const B_SPACING_SPARSE = 1.45;
-const B_SPACING_DENSE = 0.48;
-const B_EDGE_FADE = 0.35;
+const B_R_MAX = INDUCED_E_R_MAX;
+/** Faraday-style lattice spacing in source meters: sparse ↔ dense vs |B|. */
+const B_SPACING_SPARSE = 0.38;
+const B_SPACING_DENSE = 0.125;
+const B_EDGE_FADE = 0.09;
 
 /** Frameless two-line billboard: q and E only, above the probe charge. */
 function createFloatingHudLabel({ worldScale = 1 } = {}) {
@@ -238,10 +243,12 @@ export function createInducedElectricFieldEquipment() {
   const root = new THREE.Group();
   root.name = 'induced-electric-field-apparatus';
   root.visible = false;
-  // Shift apparatus slightly to the left (-0.02m) to center naturally on the workbench while leaving clean clearance for the right-side control panel.
-  root.position.set(-0.02, 0.0, 0.02);
+  // Center along Z on the 1.10 m deep tabletop (hallBench sits at z=2.66 vs table center z=2.60).
+  root.position.set(-0.02, 0.0, -0.06);
 
   const S = WORLD_PER_SOURCE;
+  const V = VISUAL_UNIT;
+  const diskRadiusWorld = INDUCED_E_DISK_RADIUS * S;
   const fieldGroup = new THREE.Group();
   const eGroup = new THREE.Group();
   const probeGroup = new THREE.Group();
@@ -251,7 +258,7 @@ export function createInducedElectricFieldEquipment() {
 
   // Dark, emissive measurement plane: floor disk.
   const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(4.6 * S, 64),
+    new THREE.CircleGeometry(diskRadiusWorld, 64),
     new THREE.MeshStandardMaterial({
       color: 0x0b1630,
       transparent: true,
@@ -271,7 +278,7 @@ export function createInducedElectricFieldEquipment() {
 
   // Physical rim: retains a clear usable-probe boundary at shallow angles.
   const workRim = new THREE.Mesh(
-    new THREE.TorusGeometry(4.6 * S, 0.026 * S, 8, 96),
+    new THREE.TorusGeometry(diskRadiusWorld, 0.026 * V, 8, 96),
     new THREE.MeshStandardMaterial({
       color: 0x334e72,
       emissive: 0x1d4ed8,
@@ -298,8 +305,8 @@ export function createInducedElectricFieldEquipment() {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const region = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.8 * S, 48, 1, true), regionMat);
-  region.position.y = 0.9 * S;
+  const region = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.8 * V, 48, 1, true), regionMat);
+  region.position.y = 0.9 * V;
   fieldGroup.add(region);
 
   const regionCapMat = new THREE.MeshBasicMaterial({
@@ -311,7 +318,7 @@ export function createInducedElectricFieldEquipment() {
   });
   const regionTop = new THREE.Mesh(new THREE.CircleGeometry(1, 48), regionCapMat);
   regionTop.rotation.x = -Math.PI / 2;
-  regionTop.position.y = 1.8 * S;
+  regionTop.position.y = 1.8 * V;
   const regionBottom = regionTop.clone();
   regionBottom.position.y = 0.01;
   fieldGroup.add(regionTop, regionBottom);
@@ -328,7 +335,7 @@ export function createInducedElectricFieldEquipment() {
     }),
   );
   regionRim.rotation.x = Math.PI / 2;
-  regionRim.position.y = 0.14 * S;
+  regionRim.position.y = 0.14 * V;
   fieldGroup.add(regionRim);
   // No wireframe cage — the soft glass cylinder + B arrows already mark the region.
 
@@ -337,10 +344,10 @@ export function createInducedElectricFieldEquipment() {
   //   · |B| drives spacing (sparse↔dense) + opacity continuously
   //   · soft circular mask to the current R region
   //   · sign flips direction / color; origin shifts so tips stay above the plane
-  const B_ARROW_LEN = 1.05 * S;
-  const B_ARROW_HEAD_LEN = 0.28 * S;
-  const B_ARROW_HEAD_W = 0.14 * S;
-  const B_ARROW_MID_Y = 0.12 * S + B_ARROW_LEN * 0.5;
+  const B_ARROW_LEN = 1.05 * V;
+  const B_ARROW_HEAD_LEN = 0.28 * V;
+  const B_ARROW_HEAD_W = 0.14 * V;
+  const B_ARROW_MID_Y = 0.12 * V + B_ARROW_LEN * 0.5;
   const B_NX = Math.max(3, Math.round((2 * B_R_MAX) / B_SPACING_DENSE) + 1);
   const B_NZ = B_NX;
   const B_HALF_IX = (B_NX - 1) * 0.5;
@@ -480,19 +487,19 @@ export function createInducedElectricFieldEquipment() {
       depthWrite: false,
     });
     const line = new THREE.LineLoop(ringGeometry(72), mat);
-    line.position.y = 0.12 * S;
+    line.position.y = 0.12 * V;
     ring.add(line);
 
     // Tangent E markers — well-proportioned, crisp arrows.
-    const E_ARROW_LEN = 0.36 * S;
-    const E_ARROW_HEAD_LEN = 0.18 * S;
-    const E_ARROW_HEAD_W = 0.10 * S;
+    const E_ARROW_LEN = 0.36 * V;
+    const E_ARROW_HEAD_LEN = 0.18 * V;
+    const E_ARROW_HEAD_W = 0.10 * V;
     const markers = [];
     for (let k = 0; k < E_MARKERS_PER_RING; k += 1) {
       const phase = (k / E_MARKERS_PER_RING) * Math.PI * 2;
       const marker = new THREE.ArrowHelper(
         new THREE.Vector3(1, 0, 0),
-        new THREE.Vector3(0, 0.12 * S, 0),
+        new THREE.Vector3(0, 0.12 * V, 0),
         E_ARROW_LEN,
         0xf472b6,
         E_ARROW_HEAD_LEN,
@@ -514,7 +521,7 @@ export function createInducedElectricFieldEquipment() {
   // Probe charge.
   const probe = new THREE.Group();
   const probeCore = new THREE.Mesh(
-    new THREE.SphereGeometry(0.105 * S, 20, 16),
+    new THREE.SphereGeometry(0.105 * V, 20, 16),
     new THREE.MeshStandardMaterial({
       color: 0xffd43b,
       emissive: 0xffb000,
@@ -527,7 +534,7 @@ export function createInducedElectricFieldEquipment() {
   probeCore.frustumCulled = false;
 
   const probeHalo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.20 * S, 14, 12),
+    new THREE.SphereGeometry(0.20 * V, 14, 12),
     new THREE.MeshBasicMaterial({
       color: 0xffd43b,
       transparent: true,
@@ -540,18 +547,18 @@ export function createInducedElectricFieldEquipment() {
   probeHalo.frustumCulled = false;
 
   const probeHit = new THREE.Mesh(
-    new THREE.SphereGeometry(0.38 * S, 14, 10),
+    new THREE.SphereGeometry(0.38 * V, 14, 10),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
   // Probe force arrow — fixed length; hide when |F|≈0 (same rule as Faraday tips).
-  const FORCE_ARROW_LEN = 0.48 * S;
+  const FORCE_ARROW_LEN = 0.48 * V;
   const forceArrow = new THREE.ArrowHelper(
     new THREE.Vector3(1, 0, 0),
     new THREE.Vector3(0, 0, 0),
     FORCE_ARROW_LEN,
     0x4ade80,
-    0.16 * S,
-    0.09 * S,
+    0.16 * V,
+    0.09 * V,
   );
   forceArrow.renderOrder = 28;
   forceArrow.line.renderOrder = 28;
@@ -563,8 +570,8 @@ export function createInducedElectricFieldEquipment() {
   forceArrow.line.raycast = () => {};
   forceArrow.cone.raycast = () => {};
   forceArrow.raycast = () => {};
-  const probeHud = createFloatingHudLabel({ worldScale: S * 11 });
-  probeHud.sprite.position.set(0, 0.22 * S, 0);
+  const probeHud = createFloatingHudLabel({ worldScale: V * 11 });
+  probeHud.sprite.position.set(0, 0.22 * V, 0);
   probeHud.sprite.renderOrder = 29;
   probeHud.sprite.frustumCulled = false;
   probe.add(probeHalo, probeCore, probeHit, forceArrow, probeHud.sprite);
@@ -579,8 +586,8 @@ export function createInducedElectricFieldEquipment() {
   // Axis ticks.
   const axisMat = new THREE.LineBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.78 });
   const axisPts = new Float32Array([
-    -4.6 * S, 0.004, 0, 4.6 * S, 0.004, 0,
-    0, 0.004, -4.6 * S, 0, 0.004, 4.6 * S,
+    -diskRadiusWorld, 0.004, 0, diskRadiusWorld, 0.004, 0,
+    0, 0.004, -diskRadiusWorld, 0, 0.004, diskRadiusWorld,
   ]);
   const axisGeo = new THREE.BufferGeometry();
   axisGeo.setAttribute('position', new THREE.BufferAttribute(axisPts, 3));
@@ -593,7 +600,7 @@ export function createInducedElectricFieldEquipment() {
   let lastShowProbe = null;
 
   root.userData.update = (data, dt = 0) => {
-    const R = Math.max(0.2, Number(data?.R || 2));
+    const R = Math.max(0.05, Number(data?.R || 0.50));
     const rWorld = R * S;
     const B = Number(data?.B || 0);
     const dBdt = Number(data?.dBdt || 0);
@@ -685,7 +692,7 @@ export function createInducedElectricFieldEquipment() {
         const densityFactor = THREE.MathUtils.clamp(scale || 1.0, 0.85, 1.05);
         const arrowScale = THREE.MathUtils.lerp(0.75, 1.05, relStrength) * densityFactor;
         // 小半径内圈周长较短，减少箭头数量（四向分布），防止小圆周上箭头首尾相撞拥挤
-        const stride = sourceR < 0.68 ? 2 : 1;
+        const stride = sourceR < 0.18 ? 2 : 1;
 
         markers.forEach(({ marker, phase }, k) => {
           if (sense === 'none' || mag < 1e-5 || (k % stride !== 0)) {
@@ -696,7 +703,7 @@ export function createInducedElectricFieldEquipment() {
 
           const lx = Math.cos(phase) * rWorld;
           const lz = Math.sin(phase) * rWorld;
-          marker.position.set(lx, 0.12 * S, lz);
+          marker.position.set(lx, 0.12 * V, lz);
 
           const dir = inducedEDirection(Math.cos(phase), Math.sin(phase), sense);
           _tangentDir.set(dir.x, 0, dir.z);
@@ -731,7 +738,7 @@ export function createInducedElectricFieldEquipment() {
     if (showProbe) {
       const px = Number(data?.probe?.x || 0) * S;
       const pz = Number(data?.probe?.z || 0) * S;
-      probe.position.set(px, 0.16 * S, pz);
+      probe.position.set(px, 0.16 * V, pz);
       const q0 = Number(data?.probe?.q0 || 1);
       const qPos = q0 >= 0;
       probeCore.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
@@ -744,7 +751,7 @@ export function createInducedElectricFieldEquipment() {
       const eText = showE
         ? `|E| = ${formatPhysicsNumber(data?.magnitudeE, { digits: 2, unit: 'N/C' })}`
         : '|E| = 0.00 N/C';
-      const fText = showE && fMag > 1e-6 ? `|F| = ${formatPhysicsNumber(fMag, { digits: 2, unit: 'N' })}` : null;
+      const fText = showE && fMag > 1e-12 ? `|F| = ${formatPhysicsNumber(fMag, { digits: 2, unit: 'N' })}` : null;
       const q0Num = Math.abs(q0) < 1e-6 ? 0 : q0;
       const q0Sign = q0Num > 0 ? '+' : '';
       const q0Text = `q₀ = ${q0Sign}${q0Num.toFixed(1)} μC`;
@@ -757,7 +764,7 @@ export function createInducedElectricFieldEquipment() {
         fText,
       );
 
-      if (showE && fMag > 1e-5) {
+      if (showE && fMag > 1e-12) {
         forceArrow.visible = true;
         forceArrow.setDirection(new THREE.Vector3(fx / fMag, 0, fz / fMag));
         // Length is created fixed — never call setLength.

@@ -3359,10 +3359,6 @@ function updateAimHud(target, canInteract) {
           title = isHelm ? '选择：亥姆霍兹线圈' : '选择：长螺线管';
           badgeText = '点击切换';
           isInteractive = true;
-        } else if (pick.action === 'hall-identify') {
-          title = pick.label || '器材识别确认';
-          badgeText = '点击确认';
-          isInteractive = true;
         } else if (pick.action === 'maximize') {
           title = target.userData?.maximized ? '还原悬浮窗' : '全屏显示';
           badgeText = '点击切换';
@@ -4840,7 +4836,7 @@ function unlockedElectroPick(event) {
     'diff_source', 'diff_slit', 'diff_screen',
     'thermo_hot_beaker', 'thermo_cold_beaker',
     'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
-    'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+    'hall_probe', 'hall_helmholtz', 'hall_solenoid',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
     'mechanics_viscosity_ball',
@@ -5150,11 +5146,9 @@ function resolveInteractivePreferred(hits) {
     diff_source: 65,
     diff_slit: 65,
     diff_screen: 65,
-    // Base equal priority; sequential identify boosts the required next part below.
     hall_helmholtz: 50,
     hall_solenoid: 50,
     hall_probe: 50,
-    hall_console: 50,
     hall_knob_im: 70,
     hall_knob_is: 70,
     hall_knob_zero: 70,
@@ -5192,13 +5186,6 @@ function resolveInteractivePreferred(hits) {
   }
   if (nearBase == null) return null;
   const near = nearBase + 0.35;
-  // During Hall sequential identify, prefer the required next apparatus so a
-  // closer ruler/console in the same view cannot permanently shadow it.
-  const identifyNext = (
-    expManager?.state?.expId === 'hall_effect'
-    && expManager.currentStep?.()?.id === 'identify'
-    && expManager.state?.data?.identifyNext
-  ) || null;
   let best = null;
   let bestScore = -Infinity;
   for (const hit of hits) {
@@ -5207,12 +5194,8 @@ function resolveInteractivePreferred(hits) {
     if (!o) continue;
     if (!isHierarchyVisible(o)) continue;
     if (!withinInteractDist(o, hit.distance)) continue;
-    let role = o.userData.role || (o.userData.type === 'holo' ? 'holo' : '');
-    if (identifyNext && (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero')) {
-      role = 'hall_console';
-    }
-    let pri = ROLE_PRI[role] ?? 10;
-    if (identifyNext && role === identifyNext) pri += 45;
+    const role = o.userData.role || (o.userData.type === 'holo' ? 'holo' : '');
+    const pri = ROLE_PRI[role] ?? 10;
     // closer + higher role priority
     const score = pri * 10 - hit.distance;
     if (score > bestScore) {
@@ -5231,11 +5214,6 @@ function resolveInteractivePreferred(hits) {
  */
 function pickLiveElectroChargeHit(hits) {
   const expId = expManager?.state?.expId;
-  const identifyNext = (
-    expId === 'hall_effect'
-    && expManager.currentStep?.()?.id === 'identify'
-    && expManager.state?.data?.identifyNext
-  ) || null;
   const preferredRoles = expId === 'electric_field'
     ? ['electric_charge', 'electric_probe']
     : expId === 'gauss_theorem'
@@ -5248,7 +5226,6 @@ function pickLiveElectroChargeHit(hits) {
             ? [
               'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
               'hall_probe', 'hall_helmholtz', 'hall_solenoid',
-              ...(expManager.currentStep?.()?.id === 'identify' ? ['hall_console'] : []),
               'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
             ]
             : expId === 'multi_slit_diffraction'
@@ -5266,24 +5243,12 @@ function pickLiveElectroChargeHit(hits) {
   // merely grazes the ray in front of the content screen).
   const roleSet = new Set(preferredRoles);
   let best = null;
-  let expected = null;
   for (let i = 0; i < hits.length; i += 1) {
     const entry = hits[i];
     const target = resolveInteractive(entry.object);
     if (!target || !isHierarchyVisible(target)) continue;
-    let role = target.userData?.role;
-    if (identifyNext && (role === 'hall_knob_im' || role === 'hall_knob_is' || role === 'hall_knob_zero')) {
-      role = 'hall_console';
-    }
+    const role = target.userData?.role;
     if (!roleSet.has(role)) continue;
-    // In the sequential Hall introduction, a console hit volume can sit in
-    // front of the coils and ruler. Prefer the requested part whenever its
-    // own recognition proxy is also under the ray.
-    if (identifyNext && role === identifyNext) {
-      if (!expected || entry.distance < expected.hit.distance) {
-        expected = { target, hit: entry };
-      }
-    }
     if (role?.includes('label')) {
       return { target, hit: entry };
     }
@@ -5291,7 +5256,7 @@ function pickLiveElectroChargeHit(hits) {
       best = { target, hit: entry };
     }
   }
-  return expected || best;
+  return best;
 }
 
 function pickLiveElectroCharge(hits) {
@@ -5715,7 +5680,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   const liveChargeRoles = new Set([
     'electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod', 'induced_e_probe',
     'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
-    'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+    'hall_probe', 'hall_helmholtz', 'hall_solenoid',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
     'mechanics_viscosity_ball',
@@ -6838,7 +6803,6 @@ function animate(tickTime = performance.now()) {
       || (hallRun && expManager.state.data?.hallDragging)
       || (hallRun && expManager.state.data?.tableScrollDrag?.armed)
       || (opticsRun && expManager.state.data?.dragging)
-      || (hallRun && expManager.currentStep?.()?.id === 'identify')
     );
 
     if (focusedTarget !== _lastFocusedTarget) {

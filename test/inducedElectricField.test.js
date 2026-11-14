@@ -125,16 +125,16 @@ test('defaults to manual mode with static B and dB/dt', () => {
 
 test('controller adjusts R, flip and probe radius in manual mode', () => {
   const { state, handlers } = context();
-  handlers.onUiAction('induced-e-adjust', { key: 'R', delta: 0.5 });
-  assert.equal(state.data.R, 2.5);
+  handlers.onUiAction('induced-e-adjust', { key: 'R', delta: 0.15 });
+  close(state.data.R, 0.65);
   handlers.onUiAction('induced-e-adjust', { key: 'R', delta: 99 });
   assert.equal(state.data.R, INDUCED_E_R_MAX);
   const before = state.data.dBdt;
   handlers.onUiAction('induced-e-flip');
   // Manual flip negates dB/dt (and thus the Lenz sense).
   close(state.data.dBdt, -before);
-  handlers.onUiAction('induced-e-adjust', { key: 'probeR', delta: 0.5 });
-  assert.ok(state.data.probeR > 1.4);
+  handlers.onUiAction('induced-e-adjust', { key: 'probeR', delta: 0.2 });
+  assert.ok(state.data.probeR > 0.35);
   handlers.onUiAction('induced-e-complete');
   assert.equal(state.data.completed, true);
 });
@@ -164,8 +164,8 @@ test('content-screen sliders map px to absolute parameter values', () => {
 
 test('controller applies absolute slider values for R / B / dBdt / probe r', () => {
   const { state, handlers } = context();
-  handlers.onUiAction('induced-e-set', { key: 'R', value: 3.0 });
-  assert.equal(state.data.R, 3.0);
+  handlers.onUiAction('induced-e-set', { key: 'R', value: 0.80 });
+  assert.equal(state.data.R, 0.80);
   handlers.onUiAction('induced-e-set', { key: 'B', value: -1.5 });
   close(state.data.B, -1.5);
   handlers.onUiAction('induced-e-slider', {
@@ -173,9 +173,9 @@ test('controller applies absolute slider values for R / B / dBdt / probe r', () 
   });
   close(state.data.dBdt, -6.25 + 0.75 * 12.5, 1e-6);
   assert.equal(state.data.sliderDragging, true);
-  handlers.onUiAction('induced-e-set', { key: 'probeR', value: 3.5 });
-  close(state.data.probeR, 3.5, 1e-6);
-  close(Math.hypot(state.data.probe.x, state.data.probe.z), 3.5, 1e-6);
+  handlers.onUiAction('induced-e-set', { key: 'probeR', value: 0.90 });
+  close(state.data.probeR, 0.90, 1e-6);
+  close(Math.hypot(state.data.probe.x, state.data.probe.z), 0.90, 1e-6);
 });
 
 test('content-screen slider hold continues via relative mouse drag and finishes cleanly', () => {
@@ -266,7 +266,7 @@ test('equipment disables raycast picking on forceArrow and non-probe lines/helpe
 
 test('computeInducedFieldRingRadii increases spacing starting from the blue separator inwards and outwards', async () => {
   const { computeInducedFieldRingRadii, createInducedElectricFieldEquipment } = await import('../src/experiments/inducedElectricFieldEquipment.js');
-  const R = 1.4;
+  const R = 0.40;
   const dBdt = 2.0;
   const radii = computeInducedFieldRingRadii(R, dBdt);
   assert.ok(Array.isArray(radii) && radii.length >= 6);
@@ -299,7 +299,7 @@ test('computeInducedFieldRingRadii increases spacing starting from the blue sepa
 
   const root = createInducedElectricFieldEquipment();
   root.visible = true;
-  root.userData.update({ R: 2.0, dBdt: 2.0, B: 1.0, showE: true });
+  root.userData.update({ R: 0.50, dBdt: 2.0, B: 1.0, showE: true });
   assert.equal(root.visible, true);
 });
 
@@ -315,25 +315,25 @@ test('inner field lines have fixed spatial coordinates, expanding R reveals more
   }
 
   // 2. Increasing R preserves the exact coordinates of previously visible inner lines (only range changes)
-  const radiiR1 = computeInducedFieldRingRadii(1.2, dBdt);
-  const radiiR2 = computeInducedFieldRingRadii(1.8, dBdt);
-  const radiiR3 = computeInducedFieldRingRadii(2.5, dBdt);
+  const radiiR1 = computeInducedFieldRingRadii(0.35, dBdt);
+  const radiiR2 = computeInducedFieldRingRadii(0.50, dBdt);
+  const radiiR3 = computeInducedFieldRingRadii(0.70, dBdt);
 
-  const in1 = radiiR1.filter((r) => r <= 1.2);
-  const in2 = radiiR2.filter((r) => r <= 1.8);
-  const in3 = radiiR3.filter((r) => r <= 2.5);
+  const in1 = radiiR1.filter((r) => r <= 0.35);
+  const in2 = radiiR2.filter((r) => r <= 0.50);
+  const in3 = radiiR3.filter((r) => r <= 0.70);
 
   assert.ok(in2.length > in1.length, 'Larger R must reveal more inner rings');
   assert.ok(in3.length > in2.length, 'Larger R must reveal more inner rings');
 
   // Existing inner rings must remain at identical radii without any shifting/scaling
   for (let i = 0; i < in1.length; i += 1) {
-    assert.equal(in1[i], in2[i], `Inner ring ${i} must have fixed coordinate when R increases from 1.2 to 1.8`);
-    assert.equal(in1[i], in3[i], `Inner ring ${i} must have fixed coordinate when R increases from 1.2 to 2.5`);
+    assert.equal(in1[i], in2[i], `Inner ring ${i} must have fixed coordinate when R increases from 0.35 to 0.50`);
+    assert.equal(in1[i], in3[i], `Inner ring ${i} must have fixed coordinate when R increases from 0.35 to 0.70`);
   }
 
   // 3. Outer rings adapt to R, and the closest inner/outer rings to divider R have matching spacing
-  [1.0, 1.5, 2.0, 2.5].forEach((testR) => {
+  [0.28, 0.42, 0.56, 0.72].forEach((testR) => {
     const all = computeInducedFieldRingRadii(testR, dBdt);
     const inner = all.filter((r) => r <= testR);
     const outer = all.filter((r) => r > testR);
@@ -352,7 +352,7 @@ test('inner field lines have fixed spatial coordinates, expanding R reveals more
 
 test('induced electric field line density strictly increases with |dB/dt| (denser) and decreases with smaller |dB/dt| (sparser)', async () => {
   const { computeInducedFieldRingRadii, MAX_E_RINGS } = await import('../src/experiments/inducedElectricFieldEquipment.js');
-  const R = 2.0;
+  const R = 0.50;
 
   // 1. Zero / negligible dB/dt produces zero field lines
   assert.deepEqual(computeInducedFieldRingRadii(R, 0), []);
@@ -410,39 +410,39 @@ test('induced electric field line density strictly increases with |dB/dt| (dense
 test('handles upper limit conditions: field lines never overcrowd and outer rings are never starved at extreme |dB/dt| and R', async () => {
   const { computeInducedFieldRingRadii, MAX_E_RINGS } = await import('../src/experiments/inducedElectricFieldEquipment.js');
 
-  // 1. User screenshot case: R = 2.46, dB/dt = -6.25 (extreme negative rate on desk slider)
-  const userCase = computeInducedFieldRingRadii(2.46, -6.25);
-  const inUser = userCase.filter((r) => r <= 2.46);
-  const outUser = userCase.filter((r) => r > 2.46);
+  // 1. High R = 0.65 m, dB/dt = -6.25 (extreme negative rate on desk slider)
+  const userCase = computeInducedFieldRingRadii(0.65, -6.25);
+  const inUser = userCase.filter((r) => r <= 0.65);
+  const outUser = userCase.filter((r) => r > 0.65);
 
-  assert.ok(inUser.length >= 8 && inUser.length <= 16, `Inner rings count (${inUser.length}) must be well balanced`);
+  assert.ok(inUser.length >= 8 && inUser.length <= 18, `Inner rings count (${inUser.length}) must be well balanced`);
   assert.ok(outUser.length >= 4, `Outer rings (${outUser.length}) must NOT be starved at extreme rate`);
   assert.ok(userCase.length <= MAX_E_RINGS, `Total rings (${userCase.length}) must not exceed MAX_E_RINGS (${MAX_E_RINGS})`);
 
   // Ensure minimum gap between adjacent inner rings is safe so arrows never collide
   for (let i = 0; i < inUser.length - 1; i += 1) {
     const gap = inUser[i + 1] - inUser[i];
-    assert.ok(gap >= 0.08, `Inner gap ${gap.toFixed(4)} at index ${i} must be >= 0.08 source units`);
+    assert.ok(gap >= 0.015, `Inner gap ${gap.toFixed(4)} at index ${i} must be >= 0.015 m`);
   }
 
-  // 2. Absolute maximum R = 3.0 and maximum rate dB/dt = +6.25
-  const maxCase = computeInducedFieldRingRadii(3.0, 6.25);
-  const inMax = maxCase.filter((r) => r <= 3.0);
-  const outMax = maxCase.filter((r) => r > 3.0);
+  // 2. Absolute maximum R = 0.80 m and maximum rate dB/dt = +6.25
+  const maxCase = computeInducedFieldRingRadii(0.80, 6.25);
+  const inMax = maxCase.filter((r) => r <= 0.80);
+  const outMax = maxCase.filter((r) => r > 0.80);
 
-  assert.ok(inMax.length >= 8 && inMax.length <= 20, `Inner rings (${inMax.length}) must be bounded`);
+  assert.ok(inMax.length >= 8 && inMax.length <= 24, `Inner rings (${inMax.length}) must be bounded`);
   assert.ok(outMax.length >= 3, `Outer rings (${outMax.length}) must be present at maximum boundary`);
   assert.ok(maxCase.length <= MAX_E_RINGS, `Max total rings (${maxCase.length}) must not exceed MAX_E_RINGS (${MAX_E_RINGS})`);
-  assert.ok(outMax[outMax.length - 1] >= 4.0, `Outer rings must extend across the outer disk: ${outMax[outMax.length - 1]}`);
+  assert.ok(outMax[outMax.length - 1] >= 1.0, `Outer rings must extend across the outer disk: ${outMax[outMax.length - 1]}`);
 });
 
 test('handles low |dB/dt| conditions: field lines are authentically sparse (<= 4 rings total, widely spaced) without clustering', async () => {
   const { computeInducedFieldRingRadii } = await import('../src/experiments/inducedElectricFieldEquipment.js');
 
-  // 1. User screenshot case: R = 2.30 m, dB/dt = 0.04 T/s
-  const lowRateCase = computeInducedFieldRingRadii(2.30, 0.04);
-  const inLow = lowRateCase.filter((r) => r <= 2.30);
-  const outLow = lowRateCase.filter((r) => r > 2.30);
+  // 1. Low rate case: R = 0.60 m, dB/dt = 0.04 T/s
+  const lowRateCase = computeInducedFieldRingRadii(0.60, 0.04);
+  const inLow = lowRateCase.filter((r) => r <= 0.60);
+  const outLow = lowRateCase.filter((r) => r > 0.60);
 
   // Must be genuinely sparse: only 1 inner ring and 1-2 outer rings (total <= 4)
   assert.ok(
@@ -452,14 +452,14 @@ test('handles low |dB/dt| conditions: field lines are authentically sparse (<= 4
   assert.equal(inLow.length, 1, `Inner rings count should be 1 at very weak rate, got ${inLow.length}`);
   assert.ok(outLow.length >= 1 && outLow.length <= 2, `Outer rings count should be 1-2, got ${outLow.length}`);
 
-  // Spacing between all adjacent rings must be wide (> 0.7 source units)
+  // Spacing between all adjacent rings must be wide (> 0.18 m)
   for (let i = 0; i < lowRateCase.length - 1; i += 1) {
     const gap = lowRateCase[i + 1] - lowRateCase[i];
-    assert.ok(gap >= 0.7, `Gap between rings at index ${i} (${gap.toFixed(3)}) must be >= 0.7 for authentic sparsity`);
+    assert.ok(gap >= 0.18, `Gap between rings at index ${i} (${gap.toFixed(3)}) must be >= 0.18 for authentic sparsity`);
   }
 
   // 2. Weakest non-zero rate: dB/dt = 0.02 T/s across various R
-  [1.4, 2.0, 3.0].forEach((testR) => {
+  [0.35, 0.50, 0.80].forEach((testR) => {
     const rings = computeInducedFieldRingRadii(testR, 0.02);
     assert.ok(
       rings.length >= 1 && rings.length <= 4,
@@ -501,5 +501,5 @@ test('induced electric field floating display stitches all desk sliders and butt
   const pick = pickHoloScreen(px / 1152, 1 - py / 768, 1152, 768, res.hits, 1);
   assert.equal(pick?.key, 'R');
   const val = valueFromParamSliderPick(pick);
-  assert.ok(val >= 2.2 && val <= 2.6, `picked R expected ~2.45, got ${val}`);
+  assert.ok(val >= 0.55 && val <= 0.70, `picked R expected ~0.625, got ${val}`);
 });

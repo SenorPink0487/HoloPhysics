@@ -120,9 +120,6 @@ test('Hall effect Helmholtz coil data points match theoretical curve', () => {
 
 test('Hall effect floating display stitches Im, Is, probePos, coil/turns sliders with step quantization and record button', () => {
   const { state, handlers } = createHallContext();
-  state.data.identified = { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true };
-  state.stepIndex = 1;
-  state.data.stepIndex = 1;
 
   for (const target of ['helmholtz', 'solenoid']) {
     state.data.wires = target === 'helmholtz'

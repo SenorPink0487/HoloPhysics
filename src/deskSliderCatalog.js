@@ -65,7 +65,7 @@ function inducedSpecs(d) {
         active: isAuto,
       },
     ]),
-    range('R', '半径 R', 0.8, 3.0, { unit: 'm', setAction: 'induced-e-set', action: 'induced-e-slider' }),
+    range('R', '半径 R', 0.10, 0.80, { unit: 'm', setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('dBdt', 'dB/dt', -6.25, 6.25, { unit: 'T/s', setAction: 'induced-e-set', action: 'induced-e-slider' }),
   ];
 }
@@ -84,7 +84,7 @@ function electricSpecs(d) {
         { label: '圆柱体', action: 'electric-gauss-shape', payload: { shape: 'cylinder' }, shape: 'cylinder', active: currentShape === 'cylinder' },
         { label: '不规则', action: 'electric-gauss-shape', payload: { shape: 'irregular' }, shape: 'irregular', active: currentShape === 'irregular' },
       ], { key: 'gaussShape' }),
-      range('radius', '高斯面缩放', 1.2, 4.2, { setAction: 'electric-set' }),
+      range('radius', '高斯面缩放', 0.12, 0.42, { setAction: 'electric-set' }),
     );
   }
   if (selected) {
@@ -143,7 +143,7 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
             { label: '感生', action: 'faraday-channel', payload: { channel: 'B' }, active: !channelX },
           ]),
           channelX
-            ? range('targetX', '目标 x', 1.2, 8, { unit: 'm', setAction: 'faraday-set' })
+            ? range('targetX', '目标 x', 0.10, 0.80, { unit: 'm', setAction: 'faraday-set' })
             : range('targetB', '目标 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
           range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', setAction: 'faraday-set' }),
           actionGroup([
@@ -151,7 +151,7 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
             { label: '反向变化', action: 'faraday-reverse' },
           ]),
           range('B', '实时 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
-          range('x', '实时 x', 1.2, 8, { unit: 'm', setAction: 'faraday-set' }),
+          range('x', '实时 x', 0.10, 0.80, { unit: 'm', setAction: 'faraday-set' }),
         ],
       };
     }
@@ -186,7 +186,7 @@ export function readDeskSliderValue(spec, data = {}, experiment = null) {
   const d = data || {};
   const key = spec.key;
 
-  if (key === 'targetX') return Number(d.targetX ?? d.x ?? 4.5);
+  if (key === 'targetX') return Number(d.targetX ?? d.x ?? 0.45);
   if (key === 'targetB') return Number(d.targetB ?? 1.5);
   if (key === 'animDuration') return Number(d.animDuration ?? 1.5);
 
@@ -196,7 +196,7 @@ export function readDeskSliderValue(spec, data = {}, experiment = null) {
     return Number(probe[key]);
   }
   if (spec.setAction === 'electric-set') {
-    if (key === 'radius' || key === 'R') return Number(d.radius ?? 2.4);
+    if (key === 'radius' || key === 'R') return Number(d.radius ?? 0.24);
     const charges = Array.isArray(d.charges) ? d.charges : [];
     const selected = charges.find((c) => c.id === d.selectedId);
     if (!selected) return null;

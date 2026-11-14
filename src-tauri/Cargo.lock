@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "DAWU"
-version = "0.2.6"
+version = "0.2.9-beta1"
 dependencies = [
  "serde",
  "serde_json",

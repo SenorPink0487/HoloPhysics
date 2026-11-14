@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { createInstancedArrowField } from '../scene/shared/instancedBatch.js';
 import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 import { labFrameScheduler } from '../frameBudget.js';
-import { getIrregularBump } from './electro.js';
+import { ELECTRIC_WORLD_SCALE, GAUSS_R_DEFAULT, getIrregularBump } from './electro.js';
 
-const WORLD_PER_SOURCE_UNIT = 0.13;
+const WORLD_PER_SOURCE_UNIT = ELECTRIC_WORLD_SCALE;
+const VISUAL_UNIT = 0.13;
 const CHARGE_LIMIT = 12;
 const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 /** SI 预因子 k·(μC→C)，场线/箭头只依赖方向与相对强弱 */
@@ -230,7 +231,7 @@ function fieldAtInto(charges, point, out) {
       point.z - Number(charge.z || 0),
     );
     const r2 = _delta.lengthSq();
-    if (r2 < 0.04 ** 2) continue;
+    if (r2 < 0.004 ** 2) continue;
     // E = kQ r̂ / r²，Q 以 μC 界面读数换算
     out.addScaledVector(_delta, (COULOMB_SCALE * q) / (r2 * Math.sqrt(r2)));
   }
@@ -245,7 +246,7 @@ function potentialAt(charges, point) {
   let value = 0;
   for (let i = 0; i < charges.length; i += 1) {
     const charge = charges[i];
-    const distance = Math.max(0.04, Math.hypot(
+    const distance = Math.max(0.004, Math.hypot(
       point.x - Number(charge.x || 0),
       point.y - Number(charge.y || 0),
       point.z - Number(charge.z || 0),
@@ -456,7 +457,7 @@ export function createElectricFieldEquipment() {
   function updateGaussSurface(radius, visible, shape = 'sphere', mode = 'single', seed = 0) {
     gaussSurfaceGroup.visible = visible;
     if (!visible) return;
-    const r = Number(radius || 2.4);
+    const r = Number(radius || GAUSS_R_DEFAULT);
     const s = String(shape || 'sphere');
     const m = String(mode || 'single');
     const seedNum = Number(seed || 0);
@@ -575,7 +576,7 @@ export function createElectricFieldEquipment() {
     node.userData.role = 'electric_probe';
   });
   probe.userData.hit = probeHit;
-  const probeHud = createFloatingHudLabel({ worldScale: WORLD_PER_SOURCE_UNIT * 6.8 });
+  const probeHud = createFloatingHudLabel({ worldScale: VISUAL_UNIT * 6.8 });
   probeHud.sprite.position.set(0, 0.085, 0);
   probeHud.sprite.renderOrder = 29;
   probeHud.sprite.frustumCulled = false;
@@ -831,14 +832,14 @@ export function createElectricFieldEquipment() {
       const dirs = sourceDirs(share);
       for (let d = 0; d < dirs.length; d += 1) {
         const direction = dirs[d];
-        _point.set(charge.x, charge.y, charge.z).addScaledVector(direction, 0.26);
+        _point.set(charge.x, charge.y, charge.z).addScaledVector(direction, 0.026);
         const points = [_point.clone()];
         for (let step = 0; step < 90; step += 1) {
           fieldAtInto(charges, _point, _field);
           const magnitude = _field.length();
           if (magnitude < 1e-5) break;
-          _point.addScaledVector(_field, sign * 0.09 / magnitude);
-          if (_point.length() > 9 || nearAnyCharge(charges, _point, 0.2)) break;
+          _point.addScaledVector(_field, sign * 0.009 / magnitude);
+          if (_point.length() > 0.9 || nearAnyCharge(charges, _point, 0.02)) break;
           points.push(_point.clone());
         }
         if (points.length >= 2) {
@@ -958,16 +959,16 @@ export function createElectricFieldEquipment() {
     if (!charges.length || !data.showEquipot) return;
 
     // 2D 平面等势线：在电荷所在水平面上进行连续电势 φ 场采样并绘制等势线/等势带
-    const extent = 4.0;
-    const minX = -extent;
-    const maxX = extent + 2 * extent; // 右侧拓展一块相同跨度的区域 (总宽度 16.0，覆盖右侧工作台)
+    const extent = 0.4;
+    const minX = -2 * extent;
+    const maxX = 2 * extent; // 水平对称覆盖工作台中央区域 (总宽度 1.6，左移居中以避免右侧溢出)
     const minY = -extent;
     const maxY = extent;
     const width = maxX - minX;
     const height = maxY - minY;
     const sizeX = 512;
     const sizeY = 256;
-    const rFloor = 0.22;
+    const rFloor = 0.022;
     const values = new Float32Array(sizeX * sizeY);
     let minV = Infinity;
     let maxV = -Infinity;
@@ -1000,8 +1001,8 @@ export function createElectricFieldEquipment() {
           const r = Math.max(rFloor, Math.sqrt(dx * dx + dy * dy + ch.z2));
           phi += ch.scaledQ / r;
         }
-        // Mild compression; keep more mid-range contrast than pure asinh(φ·0.002).
-        const v = Math.asinh(phi * 0.008);
+        // Mild compression; keep more mid-range contrast than pure asinh(φ·0.0002).
+        const v = Math.asinh(phi * 0.0008);
         values[rowOffset + ix] = v;
         if (v < minV) minV = v;
         if (v > maxV) maxV = v;
@@ -1243,7 +1244,7 @@ export function createElectricFieldEquipment() {
     _forceDir.set(fx, fz, fy).multiplyScalar(1 / mag);
     // World-space length: log-mapped so q₀ / 距离变化肉眼可见，且不被
     // WORLD_PER_SOURCE_UNIT 再缩成几毫米（旧实现几乎看不见）。
-    const refN = 2e-3; // ~1 μC · 2 kN/C 量级
+    const refN = 0.2; // ~1 μC · 200 kN/C 量级（零点几米距离）
     const length = THREE.MathUtils.clamp(
       0.10 + Math.log1p(mag / refN) * 0.07,
       0.08,
@@ -1376,7 +1377,7 @@ export function createElectricFieldEquipment() {
     const isGaussActive = Boolean(data.showGauss) || data.showGaussSurface === true || data.isGaussTheorem === true;
     const gaussMode = data.showGauss === 'concentric' ? 'concentric' : 'single';
     updateGaussSurface(
-      data.radius || 2.4,
+      data.radius || GAUSS_R_DEFAULT,
       isGaussActive && data.showSurface !== false,
       data.gaussShape || 'sphere',
       gaussMode,

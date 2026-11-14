@@ -46,7 +46,7 @@ export function formatExperimentData(stationId, expId, data) {
   if (expId === 'gauss_theorem') {
     const qEnc = Number.isFinite(data.qEnclosed) ? `${Number(data.qEnclosed).toFixed(2)} μC` : '—';
     const flux = Number.isFinite(data.flux) ? formatPhysicsNumber(data.flux, { digits: 2, unit: 'N·m²/C' }) : '—';
-    const r = Number(data.radius || 2.4).toFixed(2);
+    const r = Number(data.radius || 0.24).toFixed(2);
     const shape = data.gaussShape === 'cylinder' ? '柱面' : data.gaussShape === 'box' ? '正方体' : '球面';
     return `高斯面半径 R = ${r} m · 形状: ${shape}\n包围电荷 Q_enc = ${qEnc}\n电通量 Φ = ${flux}\n<span class="ok">高斯定理 Φ = Q_enc / ε₀ 验证中</span>`;
   }

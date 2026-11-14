@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import { createHandlers as createElectroHandlers, analyzeHallWiring, exportHallDataReport } from '../src/experiments/electro.js';
+import { createHandlers as createElectroHandlers, analyzeHallWiring, exportHallDataReport, station as electroStation } from '../src/experiments/electro.js';
+import { createStationEquipment as createElectroEquipment } from '../src/scene/stations/electro.js';
 import { drawHoloScreen, pickHoloScreen } from '../src/holoScreen.js';
 import { formatExperimentData } from '../src/ui/experimentDataSummary.js';
 
@@ -407,14 +408,6 @@ test('Hall probe grab applies continuous camera-drag via updateManipulation', ()
   });
   const handlers = createElectroHandlers(ctx);
   ctx.state.data = handlers.initData('hall_effect');
-  // Skip identify — probe drag is for post-identify steps.
-  ctx.state.data.identified = {
-    hall_helmholtz: true,
-    hall_solenoid: true,
-    hall_probe: true,
-    hall_console: true,
-  };
-  ctx.state.stepIndex = 3;
   const probe = { userData: { role: 'hall_probe' } };
   assert.equal(handlers.beginManipulation(probe), true);
   assert.equal(ctx.state.data.hallDragArmed, true);
@@ -448,14 +441,7 @@ test('Hall probe raycast drag maintains grab point on rod without snapping to ti
   });
   const handlers = createElectroHandlers(ctx);
   ctx.state.data = handlers.initData('hall_effect');
-  ctx.state.data.identified = {
-    hall_helmholtz: true,
-    hall_solenoid: true,
-    hall_probe: true,
-    hall_console: true,
-  };
   ctx.state.data.probePos = 1;
-  ctx.state.stepIndex = 3;
 
   const probe = { userData: { role: 'hall_probe' } };
 
@@ -489,104 +475,139 @@ test('Hall probe raycast drag maintains grab point on rod without snapping to ti
   assert.equal(ctx.state.data.hallDragOffset, null);
 });
 
-test('Hall identify requires sequential order and reports correct/wrong picks', () => {
-  const toasts = [];
-  const partModes = {};
-  const ctx = createContext({
-    expId: 'hall_effect',
-    stepId: 'identify',
-    equipment: {
-      electro: {
-        setHallPartState: (role, mode) => { partModes[role] = mode; },
-        clearHallIdentifyVisuals: () => {},
-        updateHall: () => {},
-        setHallWiring: () => {},
-      },
+test('Hall effect starts directly in measurement mode without equipment identification', () => {
+  const hallExp = electroStation.experiments.find((e) => e.id === 'hall_effect');
+  assert.ok(hallExp, 'hall_effect experiment must exist');
+  assert.equal(hallExp.steps.some((s) => s.id === 'identify'), false);
+  assert.equal(hallExp.steps[0].id, 'configure');
+
+  const drawnTexts = [];
+  const mockCtx = {
+    save: () => {}, restore: () => {}, clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+    beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, arc: () => {}, arcTo: () => {},
+    closePath: () => {}, fill: () => {}, stroke: () => {},
+    fillText: (text) => { drawnTexts.push(String(text || '')); },
+    strokeText: () => {},
+    measureText: (text) => ({ width: (text || '').length * 10 }),
+    setLineDash: () => {}, createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }), clip: () => {},
+  };
+
+  let activeStepIndex = 0;
+  const state = { expId: 'hall_effect', stepIndex: 0, data: {} };
+  const handlers = createElectroHandlers({
+    state,
+    equipment: { electro: { updateHall: () => {}, setHallWiring: () => {}, mouseDrag: { movementX: 0 } } },
+    toast: () => {},
+    pushHud: () => {},
+    advanceStep: () => {
+      if (state.stepIndex < hallExp.steps.length - 1) state.stepIndex += 1;
+      activeStepIndex = state.stepIndex;
+    },
+    setStep: (id) => {
+      const idx = hallExp.steps.findIndex((s) => s.id === id);
+      if (idx > state.stepIndex) {
+        state.stepIndex = idx;
+        activeStepIndex = idx;
+      }
+    },
+    currentStep: () => hallExp.steps[activeStepIndex] || null,
+    currentExp: () => hallExp,
+    currentStation: () => electroStation,
+  });
+  state.data = handlers.initData('hall_effect');
+  assert.equal('identified' in state.data, false);
+
+  const renderRes = drawHoloScreen(mockCtx, 960, 720, {
+    surface: 'display',
+    accentHex: '#f472b6',
+    fullTitle: '电磁学',
+    enTitle: 'ELECTROMAGNETISM',
+    active: true,
+    hud: {
+      running: true,
+      experiment: hallExp,
+      stepIndex: 0,
+      data: state.data,
     },
   });
-  ctx.toast = (msg) => { toasts.push(msg); };
-  const handlers = createElectroHandlers(ctx);
-  ctx.state.data = handlers.initData('hall_effect');
 
-  // Wrong order: console before helmholtz
-  assert.equal(
-    handlers.interact({ userData: { role: 'hall_console' } }, 0, { id: 'identify' }),
-    true,
-  );
-  assert.equal(ctx.state.data.identified.hall_console, false);
-  assert.equal(ctx.state.data.identifyFeedback.ok, false);
-  assert.match(toasts.at(-1), /选错了|第 1 件|亥姆霍兹/);
+  const hits = renderRes.hits || [];
+  assert.equal(hits.some((h) => h.action === 'hall-identify'), false);
+  assert.equal(drawnTexts.some((t) => t.includes('实验器材识别')), false);
+  assert.ok(hits.some((h) => h.action === 'hall-target'));
+  assert.ok(hits.some((h) => h.action === 'hall-record'));
 
-  // Correct: first item
-  assert.equal(
-    handlers.interact({ userData: { role: 'hall_helmholtz' } }, 0, { id: 'identify' }),
-    true,
-  );
-  assert.equal(ctx.state.data.identified.hall_helmholtz, true);
-  assert.equal(ctx.state.data.identifyFeedback.ok, true);
-  assert.match(toasts.at(-1), /正确|亥姆霍兹/);
+  // Apparatus can be interacted with directly at step 0 and progresses through the 5 steps
+  assert.equal(handlers.interact({ userData: { role: 'hall_helmholtz' } }, 0, hallExp.steps[0]), true);
+  assert.equal(state.data.target, 'helmholtz');
+  assert.equal(state.stepIndex, 1);
 
-  // Still wrong order: console while solenoid is next
-  assert.equal(
-    handlers.interact({ userData: { role: 'hall_console' } }, 0, { id: 'identify' }),
-    true,
-  );
-  assert.equal(ctx.state.data.identified.hall_console, false);
-  assert.equal(ctx.state.data.identifyFeedback.ok, false);
+  handlers.onUiAction('hall-set', { key: 'Im', value: 0.5 });
+  handlers.onUiAction('hall-set', { key: 'Is', value: 0.005 });
+  assert.equal(state.stepIndex, 2);
 
-  // Complete remaining sequence
-  for (const role of ['hall_solenoid', 'hall_probe', 'hall_console']) {
-    assert.equal(
-      handlers.interact({ userData: { role } }, 0, { id: 'identify' }),
-      true,
-    );
-    assert.equal(ctx.state.data.identified[role], true);
-    assert.equal(ctx.state.data.identifyFeedback.ok, true);
+  for (let i = 0; i < 3; i += 1) {
+    handlers.onUiAction('hall-record');
   }
-  assert.equal(
-    ['hall_helmholtz', 'hall_solenoid', 'hall_probe', 'hall_console']
-      .every((role) => ctx.state.data.identified[role]),
-    true,
-  );
+  assert.equal(state.stepIndex, 3);
+
+  handlers.onUiAction('hall-complete');
+  assert.equal(state.stepIndex, 4);
+  assert.equal(state.data.completed, true);
 });
 
-test('Hall identify: knobs map to hall_console on focus and interact', () => {
-  const partModes = {};
-  const ctx = createContext({
-    expId: 'hall_effect',
-    stepId: 'identify',
-    equipment: {
-      electro: {
-        setHallPartState: (role, mode) => { partModes[role] = mode; },
-        clearHallIdentifyVisuals: () => {},
-        updateHall: () => {},
-        setHallWiring: () => {},
-      },
+test('Hall bench mounts direct grab/knob targets without a console recognition blocker', () => {
+  const origDoc = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => {
+      if (tag === 'canvas') {
+        return {
+          width: 640,
+          height: 140,
+          getContext: () => ({
+            clearRect: () => {}, fillRect: () => {}, strokeRect: () => {},
+            fillText: () => {}, strokeText: () => {},
+            measureText: () => ({ width: 10 }),
+            createLinearGradient: () => ({ addColorStop: () => {} }),
+            createRadialGradient: () => ({ addColorStop: () => {} }),
+            beginPath: () => {}, closePath: () => {}, moveTo: () => {}, lineTo: () => {},
+            arc: () => {}, arcTo: () => {}, ellipse: () => {},
+            fill: () => {}, stroke: () => {}, save: () => {}, restore: () => {},
+            setLineDash: () => {},
+          }),
+        };
+      }
+      return {};
     },
-  });
-  const handlers = createElectroHandlers(ctx);
-  ctx.state.data = handlers.initData('hall_effect');
+  };
 
-  // Identify first 3
-  handlers.interact({ userData: { role: 'hall_helmholtz' } }, 0, { id: 'identify' });
-  handlers.interact({ userData: { role: 'hall_solenoid' } }, 0, { id: 'identify' });
-  handlers.interact({ userData: { role: 'hall_probe' } }, 0, { id: 'identify' });
-  assert.equal(ctx.state.data.identifyNext, 'hall_console');
+  try {
+    const station = createElectroEquipment({
+      THREE,
+      renderer: { compileAsync: async () => {} },
+      camera: new THREE.PerspectiveCamera(),
+      scene: new THREE.Scene(),
+    });
+    station.equipment.createRuntime('hall_effect');
+    station.equipment.setMode('hall');
 
-  // Hovering on knob highlights hall_console
-  handlers.onFocus({ userData: { role: 'hall_knob_im' } });
-  assert.equal(partModes.hall_console, 'hover');
-
-  // Moving off knob resets to off
-  handlers.onFocus(null);
-  assert.equal(partModes.hall_console, 'off');
-
-  // Clicking on knob correctly completes identification of hall_console
-  assert.equal(
-    handlers.interact({ userData: { role: 'hall_knob_is' } }, 0, { id: 'identify' }),
-    true,
-  );
-  assert.equal(ctx.state.data.identified.hall_console, true);
+    const roles = new Set();
+    station.root.traverse((child) => {
+      if (child.userData?.interactive && child.userData?.role) {
+        roles.add(child.userData.role);
+      }
+    });
+    assert.equal(roles.has('hall_console'), false);
+    assert.ok(roles.has('hall_helmholtz'));
+    assert.ok(roles.has('hall_solenoid'));
+    assert.ok(roles.has('hall_probe'));
+    assert.ok(roles.has('hall_knob_im'));
+    assert.ok(roles.has('hall_knob_is'));
+    assert.ok(roles.has('hall_knob_zero'));
+  } finally {
+    globalThis.document = origDoc;
+  }
 });
 
 test('Hall wiring analysis correctly identifies 3-terminal Helmholtz connections', () => {
@@ -711,9 +732,8 @@ test('Hall effect holographic screen exposes pickable hall-chart and hall-fit bu
     equipment: { electro: { updateHall: () => {}, setHallWiring: () => {} } },
   });
   const handlers = createElectroHandlers(ctx);
-  ctx.state.stepIndex = 1;
-  ctx.state.data.stepIndex = 1;
-  ctx.state.data.identified = { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true };
+  ctx.state.stepIndex = 0;
+  ctx.state.data.stepIndex = 0;
   ctx.state.data.records = [
     { target: 'solenoid', pos: 0, vh: 1.0, b: 0.05, Im: 0.5, Is: 5 },
     { target: 'solenoid', pos: 1, vh: 2.0, b: 0.10, Im: 0.5, Is: 5 },
@@ -854,8 +874,7 @@ test('Hall effect chart renders data points with + cross markers instead of circ
   const W = 960, H = 720;
   const data = {
     target: 'solenoid',
-    stepIndex: 1,
-    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    stepIndex: 0,
     showCurve: true,
     showFit: false,
     records: [
@@ -874,8 +893,8 @@ test('Hall effect chart renders data points with + cross markers instead of circ
     active: true,
     hud: {
       running: true,
-      experiment: { id: 'hall_effect', steps: [{ text: '识别' }, { text: '测量' }] },
-      stepIndex: 1,
+      experiment: { id: 'hall_effect', steps: [{ text: '选择' }, { text: '测量' }] },
+      stepIndex: 0,
       data,
     },
   });

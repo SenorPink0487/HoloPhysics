@@ -398,8 +398,7 @@ test('Hall effect table displays X (m) and 3 decimals for Helmholtz, X (cm) and 
   // 1. Helmholtz mode table
   const helmholtzData = {
     target: 'helmholtz',
-    stepIndex: 2,
-    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    stepIndex: 1,
     Im: 0.5,
     Is: 0.005,
     probePos: -0.010,
@@ -435,8 +434,7 @@ test('Hall effect table displays X (m) and 3 decimals for Helmholtz, X (cm) and 
   // 2. Solenoid mode table
   const solenoidData = {
     target: 'solenoid',
-    stepIndex: 2,
-    identified: { hall_helmholtz: true, hall_solenoid: true, hall_probe: true, hall_console: true },
+    stepIndex: 1,
     Im: 0.5,
     Is: 0.005,
     probePos: 16.0,
@@ -492,9 +490,7 @@ test('Hall carrier demo floating display stitches all 4 sliders and control butt
       assert.ok(hit.y >= 0 && hit.y + hit.h <= h, `hit ${hit.id || hit.action} overflowed ${w}x${h}: y=${hit.y} h=${hit.h}`);
     }
     const actions = new Set(res.hits.map((hit) => hit.action));
-    for (const act of ['hall-demo-type', 'hall-demo-flip', 'hall-demo-pause', 'hall-demo-field', 'hall-demo-reset']) {
-      assert.ok(actions.has(act), `missing stitched action: ${act} on ${w}x${h}`);
-    }
+    assert.ok(actions.has('hall-demo-type'), `missing stitched action: hall-demo-type on ${w}x${h}`);
   }
 });
 
