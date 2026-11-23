@@ -1,4 +1,4 @@
-# HoloPhysics (DAWU)
+# HoloPhysics（电磁仿真）
 
 HoloPhysics 是一个基于 Tauri 2、Vite 与 Three.js 构建的交互式三维物理实验平台，支持键盘鼠标与普通摄像头无穿戴隔空手势双模态操作。
 
