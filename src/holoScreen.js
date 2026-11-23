@@ -485,7 +485,11 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   const dividerStroke = isLight ? 'rgba(148, 163, 184, 0.28)' : 'rgba(56, 189, 248, 0.22)';
   const P = screenPalette(_uiTheme, primaryBlue, isDisplay);
   const d = hud?.data || {};
-  const fmt = (v, n = 3) => Number(v || 0).toFixed(n);
+  const fmt = (v, n = 2) => {
+    const num = Number(v || 0);
+    const s = num.toFixed(n);
+    return /^-0(\.0+)?$/.test(s) ? (0).toFixed(n) : s;
+  };
   const uiScale = Math.max(0.78, Math.min(innerW / 1080, contentH / 640));
 
   const x = innerX;
@@ -527,7 +531,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
     { label: '铜棒位置 x', value: `${fmt(xVal, 2)} m`, color: P.title },
     { label: '导体棒长 L', value: `${fmt(rodLen, 2)} m`, color: P.title },
     { label: '磁通量 \\Phi_B', value: `${fluxVal >= 0 ? '+' : ''}${fmt(fluxVal, 2)} Wb`, color: P.title },
-    { label: '感应电动势 \\mathcal{E}_i', value: `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 3)} V${senseTag}`, color: emfActive ? primaryBlue : P.title },
+    { label: '感应电动势 \\mathcal{E}_i', value: `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V${senseTag}`, color: emfActive ? primaryBlue : P.title },
   ];
 
   stats.forEach((st, i) => {
@@ -680,6 +684,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
     value: Number(d.animDuration ?? 1.5),
     min: 0.3,
     max: 6,
+    step: 0.05,
     unit: 's',
     digits: 2,
     setAction: 'faraday-set',
@@ -720,6 +725,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
     value: bVal,
     min: -3,
     max: 3,
+    step: 0.05,
     unit: 'T',
     digits: 2,
     setAction: 'faraday-set',
@@ -748,32 +754,67 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   drawHallButton(ctx, hits, cx + halfBtnW + btnGap, utilY, halfBtnW, utilH, '重置实验', 'faraday-reset', { fontSize: Math.round(18 * uiScale) }, primaryBlue, false);
 
   // —— 3. Right Column: Structured 2×2 Data Grid + Prominent EMF Banner Cards ——
+  const pending = d.pendingAnim;
+  const pendingElapsed = pending
+    ? Math.min(
+        Math.max(0, Number(pending.duration || 0)),
+        Math.max(0, Number(d._time || 0) - Number(pending.t0 || 0)),
+      )
+    : 0;
+  const liveSenseLabel = d.currentSense === 'cw'
+    ? '顺时针（俯视）'
+    : d.currentSense === 'ccw'
+      ? '逆时针（俯视）'
+      : '无感应电流';
+  const motionCard = (pending && pending.channel === 'x')
+    ? {
+        x0: pending.x0,
+        x1: xVal,
+        dx: xVal - pending.x0,
+        B: pending.B0,
+        dt: pendingElapsed,
+        emf: liveEmf,
+        senseLabel: liveSenseLabel,
+      }
+    : motion;
+  const inductionCard = (pending && pending.channel === 'B')
+    ? {
+        B0: pending.from,
+        B1: bVal,
+        dB: bVal - pending.from,
+        area: pending.area0,
+        dt: pendingElapsed,
+        emf: liveEmf,
+        senseLabel: liveSenseLabel,
+      }
+    : induction;
+
   const cardH = Math.floor((bodyH - gap) / 2);
   const cards = [
     {
       title: '动生 · x 变化',
-      data: motion,
+      data: motionCard,
       activeChannel: channelX,
       formula: '\\mathcal{E}_i = B L v',
-      cells: motion ? [
-        { label: '位置区间', value: `${fmt(motion.x0, 2)} \\rightarrow ${fmt(motion.x1, 2)} \\mathrm{m}` },
-        { label: '位移 \\Delta x', value: `${motion.dx >= 0 ? '+' : ''}${fmt(motion.dx, 3)} \\mathrm{m}` },
-        { label: '磁感应强度 B', value: `${fmt(motion.B, 2)} \\mathrm{T}` },
-        { label: '耗时 \\Delta t', value: `${fmt(motion.dt, 3)} \\mathrm{s}` },
+      cells: motionCard ? [
+        { label: '位置区间', value: `${fmt(motionCard.x0, 2)} \\rightarrow ${fmt(motionCard.x1, 2)} \\mathrm{m}` },
+        { label: '位移 \\Delta x', value: `${motionCard.dx >= 0 ? '+' : ''}${fmt(motionCard.dx, 2)} \\mathrm{m}` },
+        { label: '磁感应强度 B', value: `${fmt(motionCard.B, 2)} \\mathrm{T}` },
+        { label: '耗时 \\Delta t', value: `${fmt(motionCard.dt, 2)} \\mathrm{s}` },
       ] : null,
       emptyTitle: '尚未记录动生测量',
       hints: ['在左侧切换「动生」，设目标 x 后点击「自动演示」', '或直接拖动桌面铜棒 / 左下「实时 x」滑块'],
     },
     {
       title: '感生 · B 变化',
-      data: induction,
+      data: inductionCard,
       activeChannel: !channelX,
       formula: '\\mathcal{E}_i = -S \\frac{\\Delta B}{\\Delta t}',
-      cells: induction ? [
-        { label: '磁场区间', value: `${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}` },
-        { label: '变化量 \\Delta B', value: `${induction.dB >= 0 ? '+' : ''}${fmt(induction.dB, 3)} \\mathrm{T}` },
-        { label: '回路面积 S', value: `${fmt(induction.area, 3)} \\mathrm{m}^2` },
-        { label: '耗时 \\Delta t', value: `${fmt(induction.dt, 3)} \\mathrm{s}` },
+      cells: inductionCard ? [
+        { label: '磁场区间', value: `${fmt(inductionCard.B0, 2)} \\rightarrow ${fmt(inductionCard.B1, 2)} \\mathrm{T}` },
+        { label: '变化量 \\Delta B', value: `${inductionCard.dB >= 0 ? '+' : ''}${fmt(inductionCard.dB, 2)} \\mathrm{T}` },
+        { label: '回路面积 S', value: `${fmt(inductionCard.area, 2)} \\mathrm{m}^2` },
+        { label: '耗时 \\Delta t', value: `${fmt(inductionCard.dt, 2)} \\mathrm{s}` },
       ] : null,
       emptyTitle: '尚未记录感生测量',
       hints: ['在左侧切换「感生」，设目标 B 后点击「自动演示」', '或点击「反向变化」/ 拖动「实时 B」滑块'],
@@ -858,7 +899,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
 
       drawMathFormula(
         ctx,
-        `\\mathcal{E}_i = ${fmt(card.data.emf, 4)} \\mathrm{V}`,
+        `\\mathcal{E}_i = ${fmt(card.data.emf, 2)} \\mathrm{V}`,
         resX + cardPad + Math.round(14 * uiScale),
         emfBoxY + emfBannerH / 2,
         {

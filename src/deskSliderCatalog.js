@@ -143,15 +143,15 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
             { label: '感生', action: 'faraday-channel', payload: { channel: 'B' }, active: !channelX },
           ]),
           channelX
-            ? range('targetX', '目标 x', 0.10, 0.80, { unit: 'm', setAction: 'faraday-set' })
-            : range('targetB', '目标 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
-          range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', setAction: 'faraday-set' }),
+            ? range('targetX', '目标 x', 0.10, 0.80, { unit: 'm', step: 0.01, setAction: 'faraday-set' })
+            : range('targetB', '目标 B', -3, 3, { unit: 'T', step: 0.05, setAction: 'faraday-set' }),
+          range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', step: 0.05, setAction: 'faraday-set' }),
           actionGroup([
             { label: playLabel, action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
             { label: '反向变化', action: 'faraday-reverse' },
           ]),
-          range('B', '实时 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
-          range('x', '实时 x', 0.10, 0.80, { unit: 'm', setAction: 'faraday-set' }),
+          range('B', '实时 B', -3, 3, { unit: 'T', step: 0.05, setAction: 'faraday-set' }),
+          range('x', '实时 x', 0.10, 0.80, { unit: 'm', step: 0.01, setAction: 'faraday-set' }),
         ],
       };
     }

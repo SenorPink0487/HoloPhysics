@@ -1,9 +1,9 @@
 {
   "name": "quantum-physics-lab",
   "private": true,
-  "version": "0.2.9-beta1",
+  "version": "0.2.10",
   "type": "module",
-  "description": "未来物理实验室 · Tauri 2 桌面应用（Vite 前端）",
+  "description": "电磁仿真 · Tauri 2 桌面应用（Vite 前端）",
   "scripts": {
     "dev": "vite",
     "dev:web": "vite",

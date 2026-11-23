@@ -62,8 +62,9 @@ test('Faraday apparatus is registered on the electromagnetism station', () => {
 });
 
 test('Faraday flux uses B times the sliding-rod area', () => {
-  close(faradayArea(0.45), (0.45 - 0.025) * FARADAY_ROD_LENGTH);
-  close(faradayFlux(-1, 0.45), -0.17);
+  close(faradayArea(0.45), 0.45 * FARADAY_ROD_LENGTH);
+  close(faradayArea(0.50), 0.20);
+  close(faradayFlux(-1, 0.45), -0.18);
   assert.equal(faradayFlux(0, 0.45), 0);
 });
 
@@ -147,6 +148,7 @@ test('Faraday reverse B is a dynamic change to −B', () => {
   for (let i = 0; i < 40; i += 1) handlers.update(0, 0.05);
   close(state.data.B, -1.2, 1e-5);
   assert.ok(state.data.lastInduction);
+  close(state.data.lastInduction.dt, state.data.animDuration, 1e-6);
 });
 
 test('Faraday reverse x in motional mode keeps channel x and reverses motion', () => {
@@ -617,7 +619,7 @@ test('Faraday 3D induced-current arrows point CW/CCW from +y view for motional a
     assert.ok(flowHead, 'induced-current-arrows-head must exist');
 
     const x = 0.45;
-    const loopCenterX = -0.48 + ((0.025 + x) * 0.5) * 1.2;
+    const loopCenterX = -0.48 + (x * 0.5) * 1.2;
     const mat = new THREE.Matrix4();
     const col = new THREE.Color();
     const checkDirection = (sense, expectedSign, expectedHex) => {
@@ -647,5 +649,126 @@ test('Faraday 3D induced-current arrows point CW/CCW from +y view for motional a
     if (origDoc === undefined) delete globalThis.document;
     else globalThis.document = origDoc;
   }
+});
+
+test('Faraday recorded dt and emf match configured animDuration and liveEmf at 60Hz (motional & inductive)', () => {
+  const { state, handlers } = faradayContext();
+
+  // Motional: B = 1.50 T, L = 0.40 m, x: 0.10 -> 0.60 m (dx = +0.50 m), Δt = 1.00 s -> ℰ_i = -0.3000 V
+  handlers.onUiAction('faraday-channel', { channel: 'x' });
+  handlers.onUiAction('faraday-set', { key: 'B', value: 1.5 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.1 });
+  handlers.onUiAction('faraday-set', { key: 'targetX', value: 0.6 });
+  handlers.onUiAction('faraday-set', { key: 'animDuration', value: 1.0 });
+  handlers.onUiAction('faraday-play', {});
+
+  const dt60 = 1 / 60;
+  let midLiveEmf = null;
+  for (let i = 0; i < 65; i += 1) {
+    handlers.update(0, dt60);
+    if (i === 20) midLiveEmf = state.data.liveEmf;
+  }
+  assert.equal(state.data.pendingAnim, null);
+  close(midLiveEmf, -0.30, 1e-6);
+  close(state.data.lastMotion.dt, 1.0, 1e-6);
+  close(state.data.lastMotion.emf, -0.30, 1e-6);
+
+  // Replay ("重复变化" from x=0.60 with targetX=0.60): first tick liveEmf must equal -0.30 V (no _prevX spike)
+  handlers.onUiAction('faraday-play', {});
+  handlers.update(0, dt60);
+  close(state.data.liveEmf, -0.30, 1e-6);
+  // Early stop preserves actual elapsed time and consistent emf
+  for (let i = 0; i < 29; i += 1) handlers.update(0, dt60);
+  handlers.onUiAction('faraday-stop', {});
+  assert.equal(state.data.pendingAnim, null);
+  close(state.data.lastMotion.dt, 0.5, 1e-4);
+  close(state.data.lastMotion.emf, -0.30, 1e-5);
+
+  // Inductive: x = 0.50 m (S = 0.50 * 0.40 = 0.200 m²), B: -1.50 -> 1.50 T (dB = +3.00 T), Δt = 1.00 s -> ℰ_i = -0.6000 V
+  handlers.onUiAction('faraday-channel', { channel: 'B' });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.5 });
+  handlers.onUiAction('faraday-set', { key: 'B', value: -1.5 });
+  handlers.onUiAction('faraday-set', { key: 'targetB', value: 1.5 });
+  handlers.onUiAction('faraday-set', { key: 'animDuration', value: 1.0 });
+  handlers.onUiAction('faraday-play', {});
+
+  let midIndEmf = null;
+  for (let i = 0; i < 65; i += 1) {
+    handlers.update(0, dt60);
+    if (i === 30) midIndEmf = state.data.liveEmf;
+  }
+  assert.equal(state.data.pendingAnim, null);
+  close(midIndEmf, -0.60, 1e-6);
+  close(state.data.lastInduction.area, 0.20, 1e-6);
+  close(state.data.lastInduction.dB, 3.0, 1e-6);
+  close(state.data.lastInduction.dt, 1.0, 1e-6);
+  close(state.data.lastInduction.emf, -0.60, 1e-6);
+});
+
+test('Faraday sliders quantize animDuration and B to match display precision and live card shows active run', () => {
+  const { state, handlers } = faradayContext();
+  const experiment = STATION_EXPERIMENTS.electro.experiments.find((item) => item.id === 'faraday_induction');
+  const station = { id: 'electro', name: '电磁学实验台', experiments: STATION_EXPERIMENTS.electro.experiments };
+
+  const cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
+  const durSpec = cfg.specs.find((s) => s.key === 'animDuration');
+  const bSpec = cfg.specs.find((s) => s.key === 'B');
+  assert.equal(durSpec?.step, 0.05);
+  assert.equal(bSpec?.step, 0.05);
+
+  // Record an older run at Δt=2.00 s (ℰ_i=-0.15 V), then start a new run at Δt=1.00 s (ℰ_i=-0.30 V).
+  handlers.onUiAction('faraday-channel', { channel: 'x' });
+  handlers.onUiAction('faraday-set', { key: 'B', value: 1.5 });
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.1 });
+  handlers.onUiAction('faraday-set', { key: 'targetX', value: 0.6 });
+  handlers.onUiAction('faraday-set', { key: 'animDuration', value: 2.0 });
+  handlers.onUiAction('faraday-play', {});
+  for (let i = 0; i < 50; i += 1) handlers.update(0, 0.05);
+  close(state.data.lastMotion.emf, -0.15, 1e-6);
+
+  handlers.onUiAction('faraday-set', { key: 'x', value: 0.1 });
+  handlers.onUiAction('faraday-set', { key: 'animDuration', value: 1.0 });
+  handlers.onUiAction('faraday-play', {});
+  for (let i = 0; i < 10; i += 1) handlers.update(0, 0.05); // 0.50 s elapsed
+
+  const drawnTexts = [];
+  const stubCtx = {
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    fillText(text) { drawnTexts.push(String(text)); },
+    save() {},
+    restore() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    arc() {},
+    arcTo() {},
+    fill() {},
+    stroke() {},
+    addColorStop() {},
+    createLinearGradient() { return { addColorStop() {} }; },
+    createRadialGradient() { return { addColorStop() {} }; },
+    measureText() { return { width: 48 }; },
+  };
+  const res = drawHoloScreen(stubCtx, 1152, 768, {
+    active: true,
+    hud: { running: true, station, experiment, data: { ...state.data } },
+    surface: 'display',
+    theme: 'light',
+  });
+  const durHit = res.hits.find((h) => h.key === 'animDuration');
+  const liveBHit = res.hits.find((h) => h.key === 'B');
+  assert.equal(durHit?.step, 0.05);
+  assert.equal(liveBHit?.step, 0.05);
+  assert.ok(
+    drawnTexts.some((t) => t.includes('-0.30')),
+    `expected active card EMF -0.30 V during animation, got: ${drawnTexts.join(' | ')}`,
+  );
+  assert.ok(
+    !drawnTexts.some((t) => t.includes('-0.15')),
+    'must not show stale -0.15 V from previous run during active animation',
+  );
 });
 

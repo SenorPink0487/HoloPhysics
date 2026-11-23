@@ -1344,10 +1344,12 @@ function createFullStationEquipment(ctx) {
       const currentGroup = new THREE.Group();
       root.add(fieldGroup, circuitGroup, currentGroup);
 
+      const railStart = X_END;
+      const railLen = X_MAX - railStart;
       const makeRail = (z) => {
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * V, 0.08 * V, (X_MAX - 0.02) * S, 14), railMat);
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * V, 0.08 * V, railLen * S, 14), railMat);
         mesh.rotation.z = Math.PI / 2;
-        mesh.position.set(OFFSET_X + (0.02 + (X_MAX - 0.02) / 2) * S, Y * S, z * S);
+        mesh.position.set(OFFSET_X + (railStart + railLen / 2) * S, Y * S, z * S);
         mesh.castShadow = true;
         mesh.raycast = () => {};
         return mesh;

@@ -345,7 +345,7 @@ export function hallDemoForce(data) {
 // Source apparatus constants (physical coordinates, before the scene adapter's
 // visual scale/offset conversion).
 export const FARADAY_ROD_LENGTH = 0.4;
-export const FARADAY_X_END = 0.025;
+export const FARADAY_X_END = 0;
 export const FARADAY_X_MIN = 0.10;
 export const FARADAY_X_MAX = 0.80;
 export const FARADAY_SCALE = 1.2;
@@ -1620,7 +1620,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.lingerSense = 'none';
     if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-    toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+    toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(2)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 
@@ -1664,6 +1664,8 @@ export function createHandlers(ctx) {
       }
     }
     data.animChannel = channel;
+    data._prevX = data.x;
+    data._prevB = data.B;
     // Steady dΦ/dt for the whole play (linear ramp) so current arrows stay on.
     const dValDt = (to - from) / Math.max(1e-6, duration);
     let dFluxDt0 = 0;
@@ -1709,7 +1711,9 @@ export function createHandlers(ctx) {
     if (!pending) return false;
     if (pending.channel === 'x') data.x = pending.to;
     else data.B = pending.to;
-    const dt = Math.max(1e-6, data._time - pending.t0, pending.duration);
+    // Use the planned ramp duration (updated to elapsed time on early stop) so
+    // frame-step overshoot after u>=1 never skews recorded Δt or ℰ_i.
+    const dt = Math.max(1e-6, Number(pending.duration || 0));
     const flux1 = faradayFlux(data.B, data.x, data.rodLength, data.xEnd);
     const dFlux = flux1 - pending.flux0;
     const emf = faradayEmfFromDelta(dFlux, dt);
@@ -1731,7 +1735,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'motion', ...data.lastMotion });
       if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-      toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+      toast(`动生测量完成：\\mathcal{E}_i = ${emf.toFixed(2)} V，${faradaySenseLabel(sense)}`);
     } else {
       const dB = data.B - pending.from;
       data.lastInduction = {
@@ -1749,7 +1753,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'induction', ...data.lastInduction });
       if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-      toast(`感生测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+      toast(`感生测量完成：\\mathcal{E}_i = ${emf.toFixed(2)} V，${faradaySenseLabel(sense)}`);
     }
     data.records = data.records.slice(-12);
     data.pendingAnim = null;
@@ -1831,7 +1835,8 @@ export function createHandlers(ctx) {
     const start = data.sliderStart;
     if (!start) return;
     const base = Number.isFinite(start.dragB0) ? start.dragB0 : start.B0;
-    data.B = clamp(base + Number(totalX || 0) * 0.01, -3, 3);
+    const raw = clamp(base + Number(totalX || 0) * 0.01, -3, 3);
+    data.B = Math.round(raw * 100) / 100;
   }
 
   function finishFaradaySlider(data) {
@@ -1861,7 +1866,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.liveEmf = 0;
     if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-    toast(`磁场滑块测量完成：\\mathcal{E}_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
+    toast(`磁场滑块测量完成：\\mathcal{E}_i = ${emf.toFixed(2)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 
@@ -1874,21 +1879,14 @@ export function createHandlers(ctx) {
       // Linear ramp → constant dΦ/dt for the whole play (current arrows stay lit).
       const val = p.from + (p.to - p.from) * u;
       data.animProgress = u;
-      // Prefer frame velocity for x (matches manual rod); planned rate for B.
+      const dFluxDt = Number(p.dFluxDt);
       if (p.channel === 'x') {
         data.x = val;
-        const v = step > 1e-8 ? (data.x - data._prevX) / step : Number(p.dValDt || 0);
-        const dFluxDt = Number(data.B || 0) * Number(data.rodLength || FARADAY_ROD_LENGTH) * v;
-        // Fallback planned rate if this frame's dx is 0 (first tick).
-        const rate = Math.abs(dFluxDt) > 1e-8 ? dFluxDt : Number(p.dFluxDt || 0);
-        data.currentSense = faradaySense(rate);
-        data.liveEmf = -rate;
       } else {
         data.B = val;
-        const dFluxDt = Number(p.dFluxDt);
-        data.currentSense = faradaySense(dFluxDt);
-        data.liveEmf = -dFluxDt;
       }
+      data.currentSense = faradaySense(dFluxDt);
+      data.liveEmf = -dFluxDt;
       if (u >= 1) finishFaradayAnim(data);
     } else if (data.dragging && data.motionStart) {
       const dx = data.x - data._prevX;
@@ -2194,6 +2192,11 @@ export function createHandlers(ctx) {
           if (Number.isFinite(min) && Number.isFinite(max)) {
             const u = clamp((Number(payload.px) - trackX) / trackW, 0, 1);
             value = min + u * (max - min);
+            const step = Number(payload.step);
+            if (Number.isFinite(step) && step > 0) {
+              value = Math.round((value - min) / step) * step + min;
+              value = clamp(Number(value.toFixed(6)), min, max);
+            }
           }
         }
         if (!key || !Number.isFinite(value)) return true;
@@ -2313,6 +2316,11 @@ export function createHandlers(ctx) {
           if (Number.isFinite(min) && Number.isFinite(max)) {
             const u = clamp((Number(payload.px) - trackX) / trackW, 0, 1);
             value = min + u * (max - min);
+            const step = Number(payload.step);
+            if (Number.isFinite(step) && step > 0) {
+              value = Math.round((value - min) / step) * step + min;
+              value = clamp(Number(value.toFixed(6)), min, max);
+            }
           }
         }
         if (!Number.isFinite(value)) return true;
@@ -2397,7 +2405,7 @@ export function createHandlers(ctx) {
         startFaradayBChange(data, data.B + delta, 0.5);
       } else if (action === 'faraday-reverse') {
         const channel = payload.channel || data.animChannel || 'B';
-        const duration = Math.max(0.5, Number(payload.duration || data.animDuration || 1.2) * 0.6);
+        const duration = clamp(Number(payload.duration ?? data.animDuration ?? 1.5), 0.3, 6);
         if (channel === 'x') {
           const currentX = Number(data.x || 0);
           let target;

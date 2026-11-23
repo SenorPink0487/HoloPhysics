@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DAWU",
-  "version": "0.2.9-beta1",
+  "productName": "电磁仿真",
+  "version": "0.2.10",
   "identifier": "com.wuli.quantumlab",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "DAWU",
+        "title": "电磁仿真",
         "width": 1400,
         "height": 900,
         "minWidth": 1024,
@@ -53,7 +53,7 @@
           "SimpChinese"
         ],
         "displayLanguageSelector": false,
-        "startMenuFolder": "DAWU"
+        "startMenuFolder": "电磁仿真"
       }
     }
   },

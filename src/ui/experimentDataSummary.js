@@ -26,8 +26,8 @@ export function formatExperimentData(stationId, expId, data) {
     return `对象: ${target}\n接线: ${wiringText}\n${solInfo}VH = ${(vhV * 1000).toFixed(2)} mV　${posText}\nIm = ${Number(data.Im || 0).toFixed(2)} A　Is = ${isA.toFixed(3)} A\n记录: ${records.length} 组${viewMode}`;
   }
   if (expId === 'faraday_induction') {
-    const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n铜棒 x = ${fmt(data.x)} m · 楞次方向: ${data.currentSense || '无'}\n动生 ℰᵢ = ${data.lastMotion ? fmt(data.lastMotion.emf, 4) : '—'} V · 感生 ℰᵢ = ${data.lastInduction ? fmt(data.lastInduction.emf, 4) : '—'} V\n记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
+    const fmt = (value, digits = 2) => Number(value || 0).toFixed(digits);
+    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n铜棒 x = ${fmt(data.x)} m · 楞次方向: ${data.currentSense || '无'}\n动生 ℰᵢ = ${data.lastMotion ? fmt(data.lastMotion.emf, 2) : '—'} V · 感生 ℰᵢ = ${data.lastInduction ? fmt(data.lastInduction.emf, 2) : '—'} V\n记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
   }
   if (expId === 'induced_electric_field') {
     const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
